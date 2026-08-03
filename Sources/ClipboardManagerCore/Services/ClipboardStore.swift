@@ -13,10 +13,12 @@ public final class ClipboardStore {
     private let queue = DispatchQueue(label: "com.huxiaolong.clipboard.store", qos: .userInitiated)
 
     private let dbURL: URL
+    private let imagesDirectory: URL
 
-    public init(dbURL: URL? = nil) {
+    public init(dbURL: URL? = nil, imagesDirectory: URL? = nil) {
         let url = dbURL ?? Self.defaultDBURL()
         self.dbURL = url
+        self.imagesDirectory = imagesDirectory ?? Self.defaultImagesDirectory()
         openDatabase()
         createSchema()
     }
@@ -224,6 +226,15 @@ public final class ClipboardStore {
         !query("SELECT id, kind, text, image_path, original_image_path, file_paths, hash, pinned, created_at, updated_at FROM items WHERE hash = ? LIMIT 1", [hash]).isEmpty
     }
 
+    private func removeImageFiles(for item: ClipboardItem) {
+        let base = imagesDirectory.standardizedFileURL.path
+        for path in [item.imagePath, item.originalImagePath].compactMap({ $0 }) {
+            let std = (path as NSString).standardizingPath
+            guard std.hasPrefix(base) else { continue }
+            try? FileManager.default.removeItem(atPath: std)
+        }
+    }
+
     private func encodeFilePaths(_ paths: [String]) -> String {
         (try? String(data: JSONEncoder().encode(paths), encoding: .utf8)) ?? paths.joined(separator: "\n")
     }
@@ -290,14 +301,24 @@ public final class ClipboardStore {
 
     public func delete(id: Int64, completion: (() -> Void)? = nil) {
         queue.async { [weak self] in
-            self?.execute("DELETE FROM items WHERE id = ?", [id])
+            guard let self else { return }
+            let items = self.query("SELECT id, kind, text, image_path, original_image_path, file_paths, hash, pinned, created_at, updated_at FROM items WHERE id = ?", [id])
+            if let item = items.first {
+                self.removeImageFiles(for: item)
+            }
+            self.execute("DELETE FROM items WHERE id = ?", [id])
             completion?()
         }
     }
 
     public func clear(completion: (() -> Void)? = nil) {
         queue.async { [weak self] in
-            self?.execute("DELETE FROM items")
+            guard let self else { return }
+            let items = self.query("SELECT id, kind, text, image_path, original_image_path, file_paths, hash, pinned, created_at, updated_at FROM items")
+            for item in items {
+                self.removeImageFiles(for: item)
+            }
+            self.execute("DELETE FROM items")
             completion?()
         }
     }

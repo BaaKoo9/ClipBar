@@ -327,6 +327,47 @@ private func testPerformanceWith10kItems() throws {
     expect(fetchTime < 1.0, "全量读取 10000 条 < 1s")
     expect(searchTime < 1.0, "搜索 < 1s")
 }
+
+private func testImageFilesCleanedOnClear() throws {
+    let tempDir = FileManager.default.temporaryDirectory
+        .appendingPathComponent("CleanupTests-\(UUID().uuidString)", isDirectory: true)
+    try FileManager.default.createDirectory(at: tempDir, withIntermediateDirectories: true)
+    defer { try? FileManager.default.removeItem(at: tempDir) }
+
+    let imagesDir = tempDir.appendingPathComponent("Images", isDirectory: true)
+    try FileManager.default.createDirectory(at: imagesDir, withIntermediateDirectories: true)
+
+    let originalURL = imagesDir.appendingPathComponent("abc.data")
+    let thumbURL = imagesDir.appendingPathComponent("abc_thumb.jpg")
+    try Data("original".utf8).write(to: originalURL)
+    try Data("thumb".utf8).write(to: thumbURL)
+
+    // 目录外的文件不应被误删
+    let outsideURL = tempDir.appendingPathComponent("outside.txt")
+    try Data("outside".utf8).write(to: outsideURL)
+
+    let store = ClipboardStore(
+        dbURL: tempDir.appendingPathComponent("test.sqlite"),
+        imagesDirectory: imagesDir
+    )
+    store.upsert(NewClipboardItem(
+        kind: .image,
+        imagePath: thumbURL.path,
+        originalImagePath: originalURL.path,
+        hash: "img-cleanup"
+    ))
+    waitForStore()
+
+    let semaphore = DispatchSemaphore(value: 0)
+    store.clear {
+        semaphore.signal()
+    }
+    _ = semaphore.wait(timeout: .now() + 2)
+
+    expect(!FileManager.default.fileExists(atPath: originalURL.path), "清空后删除原图文件")
+    expect(!FileManager.default.fileExists(atPath: thumbURL.path), "清空后删除缩略图文件")
+    expect(FileManager.default.fileExists(atPath: outsideURL.path), "不误删目录外文件")
+}
 // MARK: - 运行
 
 do {
@@ -334,6 +375,7 @@ do {
     try testDuplicateRefreshesInsteadOfInserting()
     try testSearchMatchesText()
     try testPinnedItemSurvivesLimitCleanup()
+    try testImageFilesCleanedOnClear()
     try testClearRemovesEverything()
     testPasteText()
     try testPasteFile()

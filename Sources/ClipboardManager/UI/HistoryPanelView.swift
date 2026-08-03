@@ -1,3 +1,4 @@
+import AppKit
 import ClipboardManagerCore
 import SwiftUI
 
@@ -90,27 +91,31 @@ struct HistoryPanelView: View {
             ScrollView {
                 LazyVStack(spacing: 0) {
                     ForEach(viewModel.items) { item in
-                        HistoryRow(item: item, isSelected: item.id == viewModel.selectedID)
-                            .contentShape(Rectangle())
-                            .onTapGesture {
+                        HistoryRow(
+                            item: item,
+                            isSelected: item.id == viewModel.selectedID,
+                            highlight: viewModel.searchText.trimmingCharacters(in: .whitespacesAndNewlines)
+                        )
+                        .contentShape(Rectangle())
+                        .onTapGesture {
+                            viewModel.selectedID = item.id
+                        }
+                        .onTapGesture(count: 2) {
+                            viewModel.selectedID = item.id
+                            viewModel.pasteSelected()
+                        }
+                        .contextMenu {
+                            Button(item.pinned ? "取消置顶" : "置顶") {
+                                viewModel.togglePin(item)
+                            }
+                            Button("加入粘贴队列") {
                                 viewModel.selectedID = item.id
+                                viewModel.enqueueSelected()
                             }
-                            .onTapGesture(count: 2) {
-                                viewModel.selectedID = item.id
-                                viewModel.pasteSelected()
+                            Button("删除", role: .destructive) {
+                                viewModel.deleteItem(item)
                             }
-                            .contextMenu {
-                                Button(item.pinned ? "取消置顶" : "置顶") {
-                                    viewModel.togglePin(item)
-                                }
-                                Button("加入粘贴队列") {
-                                    viewModel.selectedID = item.id
-                                    viewModel.enqueueSelected()
-                                }
-                                Button("删除", role: .destructive) {
-                                    viewModel.deleteItem(item)
-                                }
-                            }
+                        }
                     }
                 }
                 .padding(.vertical, 4)
@@ -195,18 +200,22 @@ struct HistoryPanelView: View {
 private struct HistoryRow: View {
     let item: ClipboardItem
     let isSelected: Bool
-@State private var isHovering = false
+    let highlight: String
+    @State private var isHovering = false
 
     var body: some View {
         HStack(spacing: 10) {
-            Image(systemName: iconName)
-                .font(.system(size: 13, weight: .medium))
-                .foregroundStyle(isSelected ? .white : Color.secondary)
-                .frame(width: 18)
+            if item.kind == .image {
+                ThumbnailView(path: item.imagePath)
+            } else {
+                Image(systemName: iconName)
+                    .font(.system(size: 13, weight: .medium))
+                    .foregroundStyle(isSelected ? .white : Color.secondary)
+                    .frame(width: 18)
+            }
 
             VStack(alignment: .leading, spacing: 2) {
-                Text(item.previewLine.isEmpty ? "（空内容）" : item.previewLine)
-                    .font(.system(size: 13))
+                Text(highlightedPreview)
                     .lineLimit(2)
                     .foregroundStyle(isSelected ? .white : .primary)
                 Text("\(typeLabel) · \(Self.relativeTime(item.updatedAt))")
@@ -241,6 +250,31 @@ private struct HistoryRow: View {
         return Color.clear
     }
 
+    private var highlightedPreview: AttributedString {
+        let text = item.previewLine.isEmpty ? "（空内容）" : item.previewLine
+        var attributed = AttributedString(text)
+        guard !highlight.isEmpty else { return attributed }
+
+        let lowerText = text.lowercased()
+        let lowerQuery = highlight.lowercased()
+        var searchStart = lowerText.startIndex
+        while let range = lowerText.range(of: lowerQuery, range: searchStart..<lowerText.endIndex) {
+            if let attrRange = Range(range, in: attributed) {
+                attributed[attrRange].font = .system(size: 13, weight: .bold)
+                if isSelected {
+                    attributed[attrRange].foregroundColor = .white
+                } else {
+                    attributed[attrRange].foregroundColor = .accentColor
+                }
+            }
+            if range.upperBound == searchStart {
+                break
+            }
+            searchStart = range.upperBound
+        }
+        return attributed
+    }
+
     private var iconName: String {
         switch item.kind {
         case .text: "text.alignleft"
@@ -268,5 +302,48 @@ private struct HistoryRow: View {
 
     private static func relativeTime(_ date: Date) -> String {
         relativeFormatter.localizedString(for: date, relativeTo: Date())
+    }
+}
+
+// MARK: - 缩略图
+
+private struct ThumbnailView: View {
+    let path: String?
+    @State private var image: NSImage?
+
+    private static let cache = NSCache<NSString, NSImage>()
+
+    var body: some View {
+        Group {
+            if let image {
+                Image(nsImage: image)
+                    .resizable()
+                    .aspectRatio(contentMode: .fill)
+            } else {
+                RoundedRectangle(cornerRadius: 8)
+                    .fill(Color.primary.opacity(0.05))
+                    .overlay {
+                        Image(systemName: "photo")
+                            .font(.system(size: 12))
+                            .foregroundStyle(.tertiary)
+                    }
+            }
+        }
+        .frame(width: 40, height: 40)
+        .clipShape(RoundedRectangle(cornerRadius: 8))
+        .task(id: path) {
+            guard let path else { return }
+            if let cached = Self.cache.object(forKey: path as NSString) {
+                image = cached
+                return
+            }
+            let loaded = await Task.detached(priority: .utility) { () -> NSImage? in
+                NSImage(contentsOfFile: path)
+            }.value
+            if let loaded {
+                Self.cache.setObject(loaded, forKey: path as NSString)
+                image = loaded
+            }
+        }
     }
 }
