@@ -1,4 +1,5 @@
 import AppKit
+import SQLite3
 import Foundation
 @testable import ClipboardManagerCore
 
@@ -182,6 +183,7 @@ private func testPasteText() {
         id: 1,
         kind: .text,
         text: "回填测试文本",
+        rtfPath: nil,
         imagePath: nil,
         originalImagePath: nil,
         filePaths: [],
@@ -210,6 +212,7 @@ private func testPasteFile() throws {
         id: 2,
         kind: .file,
         text: fileURL.path,
+        rtfPath: nil,
         imagePath: nil,
         originalImagePath: nil,
         filePaths: [fileURL.path],
@@ -257,6 +260,7 @@ private func testPasteImage() throws {
         id: 3,
         kind: .image,
         text: nil,
+        rtfPath: nil,
         imagePath: nil,
         originalImagePath: originalURL.path,
         filePaths: [],
@@ -368,6 +372,90 @@ private func testImageFilesCleanedOnClear() throws {
     expect(!FileManager.default.fileExists(atPath: thumbURL.path), "清空后删除缩略图文件")
     expect(FileManager.default.fileExists(atPath: outsideURL.path), "不误删目录外文件")
 }
+
+private func testRTFPastePreservesFormat() throws {
+    // 构造一段带格式的 RTF
+    let rtfData = Data(#"""
+    {\rtf1\ansi\b 加粗内容\b0 普通内容}
+    """#.utf8)
+    let tempDir = FileManager.default.temporaryDirectory
+        .appendingPathComponent("RTFTests-\(UUID().uuidString)", isDirectory: true)
+    try FileManager.default.createDirectory(at: tempDir, withIntermediateDirectories: true)
+    defer { try? FileManager.default.removeItem(at: tempDir) }
+
+    let rtfURL = tempDir.appendingPathComponent("item.rtf")
+    try rtfData.write(to: rtfURL)
+
+    let item = ClipboardItem(
+        id: 1,
+        kind: .text,
+        text: "加粗内容 普通内容",
+        rtfPath: rtfURL.path,
+        imagePath: nil,
+        originalImagePath: nil,
+        filePaths: [],
+        hash: "rtf1",
+        pinned: false,
+        createdAt: Date(),
+        updatedAt: Date()
+    )
+
+    _ = PasteService.shared.writeToPasteboard(item)
+    let written = NSPasteboard.general.data(forType: .rtf)
+
+    expect(written == rtfData, "RTF 格式在回填后完整保留")
+    expect(NSPasteboard.general.string(forType: .string) == "加粗内容 普通内容", "纯文本内容同时保留")
+}
+
+private func testLegacyDatabaseMigration() throws {
+    // 用旧版 schema（无 rtf_path 列）建库，验证打开后自动迁移
+    let tempDir = FileManager.default.temporaryDirectory
+        .appendingPathComponent("MigrateTests-\(UUID().uuidString)", isDirectory: true)
+    try FileManager.default.createDirectory(at: tempDir, withIntermediateDirectories: true)
+    defer { try? FileManager.default.removeItem(at: tempDir) }
+    let dbURL = tempDir.appendingPathComponent("legacy.sqlite")
+    var db: OpaquePointer?
+    dbURL.path.withCString { path in
+        sqlite3_open(path, &db)
+    }
+    let legacySchema = """
+    CREATE TABLE items (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        kind TEXT NOT NULL,
+        text TEXT,
+        image_path TEXT,
+        original_image_path TEXT,
+        file_paths TEXT,
+        hash TEXT NOT NULL UNIQUE,
+        pinned INTEGER NOT NULL DEFAULT 0,
+        created_at REAL NOT NULL,
+        updated_at REAL NOT NULL
+    )
+    """
+    let schema = legacySchema as NSString
+    typealias ExecCallback = @convention(c) (UnsafeMutableRawPointer?, Int32, UnsafeMutablePointer<UnsafeMutablePointer<CChar>?>?, UnsafeMutablePointer<UnsafeMutablePointer<CChar>?>?) -> Int32
+    sqlite3_exec(db, schema.utf8String, Optional<ExecCallback>.none, nil, nil)
+    sqlite3_close(db)
+    let store = ClipboardStore(dbURL: dbURL, imagesDirectory: tempDir)
+    store.upsert(NewClipboardItem(
+        kind: .text,
+        text: "迁移后的内容",
+        rtfPath: "/tmp/fake.rtf",
+        hash: "migrate1"
+    ))
+    waitForStore()
+
+    let semaphore = DispatchSemaphore(value: 0)
+    var items: [ClipboardItem] = []
+    store.fetchAll { result in
+        items = result
+        semaphore.signal()
+    }
+    _ = semaphore.wait(timeout: .now() + 2)
+
+    expectEqual(items.count, 1, "旧库迁移后仍可读写")
+    expectEqual(items.first?.rtfPath, "/tmp/fake.rtf", "迁移后 rtf_path 列可正常存取")
+}
 // MARK: - 运行
 
 do {
@@ -382,6 +470,8 @@ do {
     try testPasteImage()
     try testPerformanceWith10kItems()
     testHotKeyRegistration()
+    try testRTFPastePreservesFormat()
+    try testLegacyDatabaseMigration()
 } catch {
     failed += 1
     print("❌ 测试抛出异常: \(error)")

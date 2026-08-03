@@ -28,7 +28,10 @@ let package = Package(
         .executableTarget(
             name: "CoreTests",
             dependencies: ["ClipboardManagerCore"],
-            path: "Tests/ClipboardManagerCoreTests"
+            path: "Tests/ClipboardManagerCoreTests",
+            linkerSettings: [
+                .linkedLibrary("sqlite3")
+            ]
         )
     ]
 )

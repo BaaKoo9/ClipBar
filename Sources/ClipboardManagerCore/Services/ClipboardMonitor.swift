@@ -89,16 +89,32 @@ public final class ClipboardMonitor {
             return
         }
 
-        // 3. 文本（含链接）
+        // 3. 文本（含链接），带格式时同时保存 RTF
         if let text = plainText(from: items), !text.isEmpty {
             let hash = Hashing.sha256Hex(text)
             guard hash != lastWrittenHash else { return }
             let kind: ClipboardItem.Kind = text.isLikelyURL ? .link : .text
+            var rtfPath: String?
+            if let rtfData = pasteboard.data(forType: .rtf), !rtfData.isEmpty {
+                rtfPath = saveRTF(data: rtfData, hash: hash)
+            }
             ClipboardStore.shared.upsert(NewClipboardItem(
                 kind: kind,
                 text: text,
+                rtfPath: rtfPath,
                 hash: hash
             ))
+        }
+    }
+
+    private func saveRTF(data: Data, hash: String) -> String? {
+        let url = ClipboardStore.defaultRTFDirectory().appendingPathComponent("\(hash).rtf")
+        do {
+            try data.write(to: url)
+            return url.path
+        } catch {
+            print("保存 RTF 失败: \(error)")
+            return nil
         }
     }
 

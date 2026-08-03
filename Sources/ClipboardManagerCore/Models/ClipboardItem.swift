@@ -12,6 +12,7 @@ public struct ClipboardItem: Identifiable, Equatable {
     public let id: Int64
     public let kind: Kind
     public let text: String?
+    public let rtfPath: String?
     public let imagePath: String?
     public let originalImagePath: String?
     public let filePaths: [String]
@@ -45,6 +46,7 @@ public struct ClipboardItem: Identifiable, Equatable {
 public struct NewClipboardItem {
     public let kind: ClipboardItem.Kind
     public let text: String?
+    public let rtfPath: String?
     public let imagePath: String?
     public let originalImagePath: String?
     public let filePaths: [String]
@@ -53,6 +55,7 @@ public struct NewClipboardItem {
     public init(
         kind: ClipboardItem.Kind,
         text: String? = nil,
+        rtfPath: String? = nil,
         imagePath: String? = nil,
         originalImagePath: String? = nil,
         filePaths: [String] = [],
@@ -60,6 +63,7 @@ public struct NewClipboardItem {
     ) {
         self.kind = kind
         self.text = text
+        self.rtfPath = rtfPath
         self.imagePath = imagePath
         self.originalImagePath = originalImagePath
         self.filePaths = filePaths

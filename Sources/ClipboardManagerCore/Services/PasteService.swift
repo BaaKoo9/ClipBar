@@ -17,6 +17,10 @@ public final class PasteService {
         case .text, .link:
             guard let text = item.text else { return nil }
             pasteboard.setString(text, forType: .string)
+            if let rtfPath = item.rtfPath,
+               let rtfData = try? Data(contentsOf: URL(fileURLWithPath: rtfPath)) {
+                pasteboard.setData(rtfData, forType: .rtf)
+            }
             return Hashing.sha256Hex(text)
 
         case .image:

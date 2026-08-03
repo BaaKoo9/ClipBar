@@ -15,6 +15,9 @@ public final class ClipboardStore {
     private let dbURL: URL
     private let imagesDirectory: URL
 
+    private static let itemColumns =
+        "id, kind, text, rtf_path, image_path, original_image_path, file_paths, hash, pinned, created_at, updated_at"
+
     public init(dbURL: URL? = nil, imagesDirectory: URL? = nil) {
         let url = dbURL ?? Self.defaultDBURL()
         self.dbURL = url
@@ -43,6 +46,13 @@ public final class ClipboardStore {
         return dir
     }
 
+    public static func defaultRTFDirectory() -> URL {
+        let base = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first!
+        let dir = base.appendingPathComponent("ClipboardManager/RTF", isDirectory: true)
+        try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+        return dir
+    }
+
     // MARK: - 基础
 
     private func openDatabase() {
@@ -54,12 +64,13 @@ public final class ClipboardStore {
     }
 
     private func createSchema() {
-        let statements = [
+        execute(
             """
             CREATE TABLE IF NOT EXISTS items (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
                 kind TEXT NOT NULL,
                 text TEXT,
+                rtf_path TEXT,
                 image_path TEXT,
                 original_image_path TEXT,
                 file_paths TEXT,
@@ -68,11 +79,30 @@ public final class ClipboardStore {
                 created_at REAL NOT NULL,
                 updated_at REAL NOT NULL
             )
-            """,
-            "CREATE INDEX IF NOT EXISTS idx_items_updated ON items(updated_at DESC)",
-        ]
-        for statement in statements {
-            execute(statement)
+            """
+        )
+        execute("CREATE INDEX IF NOT EXISTS idx_items_updated ON items(updated_at DESC)")
+        migrateIfNeeded()
+    }
+
+    /// 旧版本数据库没有 rtf_path 列，这里做增量迁移。
+    private func migrateIfNeeded() {
+        guard let db else { return }
+        var stmt: OpaquePointer?
+        guard sqlite3_prepare_v2(db, "PRAGMA table_info(items)", -1, &stmt, nil) == SQLITE_OK else { return }
+        defer { sqlite3_finalize(stmt) }
+
+        var hasRTFColumn = false
+        while sqlite3_step(stmt) == SQLITE_ROW {
+            if let name = sqlite3_column_text(stmt, 1) {
+                let column = String(cString: name)
+                if column == "rtf_path" {
+                    hasRTFColumn = true
+                }
+            }
+        }
+        if !hasRTFColumn {
+            execute("ALTER TABLE items ADD COLUMN rtf_path TEXT")
         }
     }
 
@@ -142,13 +172,14 @@ public final class ClipboardStore {
             let id = sqlite3_column_int64(stmt, 0)
             let kindRaw = columnString(stmt, 1)
             let text = columnStringOrNil(stmt, 2)
-            let imagePath = columnStringOrNil(stmt, 3)
-            let originalImagePath = columnStringOrNil(stmt, 4)
-            let filePathsRaw = columnStringOrNil(stmt, 5)
-            let hash = columnString(stmt, 6)
-            let pinned = sqlite3_column_int(stmt, 7) == 1
-            let createdAt = Date(timeIntervalSince1970: sqlite3_column_double(stmt, 8))
-            let updatedAt = Date(timeIntervalSince1970: sqlite3_column_double(stmt, 9))
+            let rtfPath = columnStringOrNil(stmt, 3)
+            let imagePath = columnStringOrNil(stmt, 4)
+            let originalImagePath = columnStringOrNil(stmt, 5)
+            let filePathsRaw = columnStringOrNil(stmt, 6)
+            let hash = columnString(stmt, 7)
+            let pinned = sqlite3_column_int(stmt, 8) == 1
+            let createdAt = Date(timeIntervalSince1970: sqlite3_column_double(stmt, 9))
+            let updatedAt = Date(timeIntervalSince1970: sqlite3_column_double(stmt, 10))
 
             let filePaths = filePathsRaw.flatMap { raw -> [String] in
                 (try? JSONDecoder().decode([String].self, from: Data(raw.utf8))) ?? []
@@ -158,6 +189,7 @@ public final class ClipboardStore {
                 id: id,
                 kind: ClipboardItem.Kind(rawValue: kindRaw) ?? .text,
                 text: text,
+                rtfPath: rtfPath,
                 imagePath: imagePath,
                 originalImagePath: originalImagePath,
                 filePaths: filePaths,
@@ -198,41 +230,34 @@ public final class ClipboardStore {
             if self.exists(hash: item.hash) {
                 self.execute(
                     """
-                    UPDATE items SET kind = ?, text = ?, image_path = ?, original_image_path = ?,
+                    UPDATE items SET kind = ?, text = ?, rtf_path = ?, image_path = ?, original_image_path = ?,
                         file_paths = ?, updated_at = ?
                     WHERE hash = ?
                     """,
-                    [item.kind.rawValue, item.text ?? "", item.imagePath ?? "", item.originalImagePath ?? "",
-                     item.filePaths.isEmpty ? nil : self.encodeFilePaths(item.filePaths), now, item.hash]
+                    [item.kind.rawValue, item.text ?? "", item.rtfPath ?? "", item.imagePath ?? "",
+                     item.originalImagePath ?? "", item.filePaths.isEmpty ? nil : self.encodeFilePaths(item.filePaths),
+                     now, item.hash]
                 )
             } else {
                 self.execute(
                     """
-                    INSERT INTO items (kind, text, image_path, original_image_path, file_paths, hash, pinned, created_at, updated_at)
-                    VALUES (?, ?, ?, ?, ?, ?, 0, ?, ?)
+                    INSERT INTO items (kind, text, rtf_path, image_path, original_image_path, file_paths, hash, pinned, created_at, updated_at)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, 0, ?, ?)
                     """,
-                    [item.kind.rawValue, item.text ?? "", item.imagePath ?? "", item.originalImagePath ?? "",
-                     item.filePaths.isEmpty ? nil : self.encodeFilePaths(item.filePaths), item.hash, now, now]
+                    [item.kind.rawValue, item.text ?? "", item.rtfPath ?? "", item.imagePath ?? "",
+                     item.originalImagePath ?? "", item.filePaths.isEmpty ? nil : self.encodeFilePaths(item.filePaths),
+                     item.hash, now, now]
                 )
-            }
-            self.insertCount += 1
-            if self.insertCount % 25 == 0 {
-                self.enforceLimit()
+                self.insertCount += 1
+                if self.insertCount % 25 == 0 {
+                    self.enforceLimit()
+                }
             }
         }
     }
 
     private func exists(hash: String) -> Bool {
-        !query("SELECT id, kind, text, image_path, original_image_path, file_paths, hash, pinned, created_at, updated_at FROM items WHERE hash = ? LIMIT 1", [hash]).isEmpty
-    }
-
-    private func removeImageFiles(for item: ClipboardItem) {
-        let base = imagesDirectory.standardizedFileURL.path
-        for path in [item.imagePath, item.originalImagePath].compactMap({ $0 }) {
-            let std = (path as NSString).standardizingPath
-            guard std.hasPrefix(base) else { continue }
-            try? FileManager.default.removeItem(atPath: std)
-        }
+        !query("SELECT \(Self.itemColumns) FROM items WHERE hash = ? LIMIT 1", [hash]).isEmpty
     }
 
     private func encodeFilePaths(_ paths: [String]) -> String {
@@ -262,9 +287,7 @@ public final class ClipboardStore {
 
     public func fetchAll(completion: @escaping ([ClipboardItem]) -> Void) {
         queue.async { [weak self] in
-            let items = self?.query(
-                "SELECT id, kind, text, image_path, original_image_path, file_paths, hash, pinned, created_at, updated_at FROM items ORDER BY updated_at DESC, id DESC"
-            ) ?? []
+            let items = self?.query("SELECT \(Self.itemColumns) FROM items ORDER BY updated_at DESC, id DESC") ?? []
             completion(items)
         }
     }
@@ -279,7 +302,7 @@ public final class ClipboardStore {
         queue.async { [weak self] in
             let items = self?.query(
                 """
-                SELECT id, kind, text, image_path, original_image_path, file_paths, hash, pinned, created_at, updated_at
+                SELECT \(Self.itemColumns)
                 FROM items
                 WHERE text LIKE ? OR file_paths LIKE ?
                 ORDER BY updated_at DESC, id DESC
@@ -302,9 +325,9 @@ public final class ClipboardStore {
     public func delete(id: Int64, completion: (() -> Void)? = nil) {
         queue.async { [weak self] in
             guard let self else { return }
-            let items = self.query("SELECT id, kind, text, image_path, original_image_path, file_paths, hash, pinned, created_at, updated_at FROM items WHERE id = ?", [id])
+            let items = self.query("SELECT \(Self.itemColumns) FROM items WHERE id = ?", [id])
             if let item = items.first {
-                self.removeImageFiles(for: item)
+                self.removeContentFiles(for: item)
             }
             self.execute("DELETE FROM items WHERE id = ?", [id])
             completion?()
@@ -314,12 +337,25 @@ public final class ClipboardStore {
     public func clear(completion: (() -> Void)? = nil) {
         queue.async { [weak self] in
             guard let self else { return }
-            let items = self.query("SELECT id, kind, text, image_path, original_image_path, file_paths, hash, pinned, created_at, updated_at FROM items")
+            let items = self.query("SELECT \(Self.itemColumns) FROM items")
             for item in items {
-                self.removeImageFiles(for: item)
+                self.removeContentFiles(for: item)
             }
             self.execute("DELETE FROM items")
             completion?()
+        }
+    }
+
+    /// 删除与条目关联的缓存文件（图片、RTF），只清理自家目录。
+    private func removeContentFiles(for item: ClipboardItem) {
+        let imageBase = imagesDirectory.standardizedFileURL.path
+        let rtfBase = Self.defaultRTFDirectory().standardizedFileURL.path
+        var paths = [item.imagePath, item.originalImagePath, item.rtfPath].compactMap { $0 }
+        for path in paths {
+            let std = (path as NSString).standardizingPath
+            let isSafe = std.hasPrefix(imageBase) || std.hasPrefix(rtfBase)
+            guard isSafe else { continue }
+            try? FileManager.default.removeItem(atPath: std)
         }
     }
 }
