@@ -1,3 +1,4 @@
+import AppKit
 import Foundation
 @testable import ClipboardManagerCore
 
@@ -32,6 +33,8 @@ private func waitForStore(_ timeout: TimeInterval = 2) {
     }
     _ = semaphore.wait(timeout: .now() + timeout)
 }
+
+// MARK: - 存储测试
 
 private func testInsertAndFetch() throws {
     let tempDir = FileManager.default.temporaryDirectory
@@ -171,6 +174,103 @@ private func testClearRemovesEverything() throws {
     expect(result.isEmpty, "清空后无记录")
 }
 
+// MARK: - 回填测试（写回系统剪贴板）
+
+private func testPasteText() {
+    let item = ClipboardItem(
+        id: 1,
+        kind: .text,
+        text: "回填测试文本",
+        imagePath: nil,
+        originalImagePath: nil,
+        filePaths: [],
+        hash: "t1",
+        pinned: false,
+        createdAt: Date(),
+        updatedAt: Date()
+    )
+
+    let hash = PasteService.shared.writeToPasteboard(item)
+    let pasteboard = NSPasteboard.general
+
+    expect(hash == Hashing.sha256Hex("回填测试文本"), "文本回填返回正确 hash")
+    expect(pasteboard.string(forType: .string) == "回填测试文本", "文本已写入系统剪贴板")
+}
+
+private func testPasteFile() throws {
+    let temp = FileManager.default.temporaryDirectory
+        .appendingPathComponent("PasteTest-\(UUID().uuidString)")
+    try FileManager.default.createDirectory(at: temp, withIntermediateDirectories: true)
+    let fileURL = temp.appendingPathComponent("测试文件.txt")
+    try "文件内容".write(to: fileURL, atomically: true, encoding: .utf8)
+    defer { try? FileManager.default.removeItem(at: temp) }
+
+    let item = ClipboardItem(
+        id: 2,
+        kind: .file,
+        text: fileURL.path,
+        imagePath: nil,
+        originalImagePath: nil,
+        filePaths: [fileURL.path],
+        hash: "f1",
+        pinned: false,
+        createdAt: Date(),
+        updatedAt: Date()
+    )
+
+    _ = PasteService.shared.writeToPasteboard(item)
+    let urls = NSPasteboard.general.readObjects(
+        forClasses: [NSURL.self],
+        options: [.urlReadingFileURLsOnly: true]
+    ) as? [URL]
+
+    expect(urls?.map(\.path) == [fileURL.path], "文件引用已写入系统剪贴板")
+}
+
+private func testPasteImage() throws {
+    guard let rep = NSBitmapImageRep(
+        bitmapDataPlanes: nil,
+        pixelsWide: 64,
+        pixelsHigh: 64,
+        bitsPerSample: 8,
+        samplesPerPixel: 4,
+        hasAlpha: true,
+        isPlanar: false,
+        colorSpaceName: .calibratedRGB,
+        bytesPerRow: 0,
+        bitsPerPixel: 0
+    ), let png = rep.representation(using: .png, properties: [:]) else {
+        failed += 1
+        print("❌ 无法创建测试图片")
+        return
+    }
+
+    let temp = FileManager.default.temporaryDirectory
+        .appendingPathComponent("PasteImageTest-\(UUID().uuidString)")
+    try FileManager.default.createDirectory(at: temp, withIntermediateDirectories: true)
+    let originalURL = temp.appendingPathComponent("image.data")
+    try png.write(to: originalURL)
+    defer { try? FileManager.default.removeItem(at: temp) }
+
+    let item = ClipboardItem(
+        id: 3,
+        kind: .image,
+        text: nil,
+        imagePath: nil,
+        originalImagePath: originalURL.path,
+        filePaths: [],
+        hash: "img1",
+        pinned: false,
+        createdAt: Date(),
+        updatedAt: Date()
+    )
+
+    let hash = PasteService.shared.writeToPasteboard(item)
+    let written = NSPasteboard.general.data(forType: .png)
+
+    expect(written != nil && Hashing.sha256Hex(written!) == hash && !written!.isEmpty, "图片已按 PNG 写回剪贴板")
+}
+
 // MARK: - 运行
 
 do {
@@ -179,6 +279,9 @@ do {
     try testSearchMatchesText()
     try testPinnedItemSurvivesLimitCleanup()
     try testClearRemovesEverything()
+    testPasteText()
+    try testPasteFile()
+    try testPasteImage()
 } catch {
     failed += 1
     print("❌ 测试抛出异常: \(error)")

@@ -72,11 +72,13 @@ public final class ClipboardMonitor {
             return
         }
 
-        // 2. 图片
-        if let imageData = pasteboard.data(forType: .png) ?? pasteboard.data(forType: .tiff) {
-            let hash = Hashing.sha256Hex(imageData)
+        // 2. 图片：先规范化为 PNG，保证 hash、存储与回填一致
+        if let imageData = pasteboard.data(forType: .png) ?? pasteboard.data(forType: .tiff),
+           let image = NSImage(data: imageData) {
+            let canonicalData = image.pngData() ?? imageData
+            let hash = Hashing.sha256Hex(canonicalData)
             guard hash != lastWrittenHash else { return }
-            saveImage(data: imageData, hash: hash) { originalPath, thumbPath in
+            saveImage(data: canonicalData, hash: hash) { originalPath, thumbPath in
                 ClipboardStore.shared.upsert(NewClipboardItem(
                     kind: .image,
                     imagePath: thumbPath,

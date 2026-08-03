@@ -2,8 +2,6 @@ import AppKit
 import ClipboardManagerCore
 import SwiftUI
 
-
-
 @MainActor
 final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate {
     private var statusItem: NSStatusItem?
@@ -44,6 +42,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate {
         pop.behavior = .transient
         pop.animates = true
         pop.delegate = self
+
+        panelViewModel.onRequestClose = { [weak self] in
+            self?.popover?.performClose(nil)
+        }
+
         popover = pop
     }
 
