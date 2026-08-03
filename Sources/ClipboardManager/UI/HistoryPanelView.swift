@@ -105,6 +105,16 @@ struct HistoryPanelView: View {
                             viewModel.pasteSelected()
                         }
                         .contextMenu {
+                                if item.kind == .link, let text = item.text, let url = URL(string: text) {
+                                    Button("打开链接") {
+                                        NSWorkspace.shared.open(url)
+                                    }
+                                }
+                                if item.kind == .file, let first = item.filePaths.first {
+                                    Button("在 Finder 中显示") {
+                                        NSWorkspace.shared.activateFileViewerSelecting([URL(fileURLWithPath: first)])
+                                    }
+                                }
                             Button(item.pinned ? "取消置顶" : "置顶") {
                                 viewModel.togglePin(item)
                             }
