@@ -6,7 +6,7 @@ CONFIG="${1:-release}"
 APP_NAME="Clipboard Manager"
 
 cd "$ROOT"
-swift build -c "$CONFIG"
+swift build -c "$CONFIG" --product ClipboardManager
 
 APP_DIR="$ROOT/dist/$APP_NAME.app"
 rm -rf "$APP_DIR"

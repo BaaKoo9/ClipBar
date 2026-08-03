@@ -1,4 +1,5 @@
 import AppKit
+import ClipboardManagerCore
 import SwiftUI
 
 
@@ -12,8 +13,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate {
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         NSApp.setActivationPolicy(.accessory)
+        ClipboardMonitor.shared.start()
         setupStatusItem()
         setupPopover()
+        panelViewModel.loadHistory()
     }
 
     // MARK: - Status item

@@ -7,8 +7,16 @@ let package = Package(
         .macOS(.v14)
     ],
     targets: [
+        .target(
+            name: "ClipboardManagerCore",
+            path: "Sources/ClipboardManagerCore",
+            linkerSettings: [
+                .linkedLibrary("sqlite3")
+            ]
+        ),
         .executableTarget(
             name: "ClipboardManager",
+            dependencies: ["ClipboardManagerCore"],
             path: "Sources/ClipboardManager",
             linkerSettings: [
                 .linkedFramework("AppKit"),
@@ -16,6 +24,11 @@ let package = Package(
                 .linkedFramework("Carbon"),
                 .linkedFramework("UniformTypeIdentifiers")
             ]
+        ),
+        .executableTarget(
+            name: "CoreTests",
+            dependencies: ["ClipboardManagerCore"],
+            path: "Tests/ClipboardManagerCoreTests"
         )
     ]
 )
