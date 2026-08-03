@@ -9,6 +9,7 @@ final class PanelViewModel: ObservableObject {
     @Published var items: [ClipboardItem] = []
     @Published var selectedID: Int64?
     @Published var showsSettings = false
+    @Published var pasteQueue: [ClipboardItem] = []
 
     /// AppDelegate 注入：请求关闭面板（Esc、粘贴完成后等）。
     var onRequestClose: (() -> Void)?
@@ -31,6 +32,7 @@ final class PanelViewModel: ObservableObject {
     }
 
     func panelDidClose() {
+        flushQueue()
         if !searchText.isEmpty {
             searchText = ""
         }
@@ -53,6 +55,32 @@ final class PanelViewModel: ObservableObject {
                 DispatchQueue.main.async { self?.apply(items) }
             }
         }
+    }
+
+    /// 关闭面板时执行顺序粘贴：开启自动粘贴则逐个写回并注入 ⌘V，否则回填第一条。
+    private func flushQueue() {
+        guard !pasteQueue.isEmpty else { return }
+        let queue = pasteQueue
+        pasteQueue = []
+
+        if AppSettings.shared.autoPasteEnabled, PasteService.hasAccessibilityPermission {
+            for (index, item) in queue.enumerated() {
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.45 * Double(index)) { [weak self] in
+                    if let hash = PasteService.shared.writeToPasteboard(item) {
+                        self?.ignoreWritten(hash)
+                    }
+                    PasteService.injectCommandV()
+                }
+            }
+        } else {
+            if let first = queue.first, let hash = PasteService.shared.writeToPasteboard(first) {
+                ignoreWritten(hash)
+            }
+        }
+    }
+
+    private func ignoreWritten(_ hash: String) {
+        ClipboardMonitor.shared.ignore(hash: hash)
     }
 
     private func apply(_ newItems: [ClipboardItem]) {
@@ -78,7 +106,23 @@ final class PanelViewModel: ObservableObject {
 
     // MARK: - 操作
 
+    /// 入队当前选中项（⌘+回车），用于顺序粘贴。
+    func enqueueSelected() {
+        guard let item = selectedItem else { return }
+        pasteQueue.append(item)
+    }
+
+    func clearQueue() {
+        pasteQueue = []
+    }
+
+    /// 回车粘贴：队列为空时单条回填；队列非空时把选中项也入队，关闭面板后统一顺序粘贴。
     func pasteSelected() {
+        if !pasteQueue.isEmpty {
+            enqueueSelected()
+            onRequestClose?()
+            return
+        }
         guard let item = selectedItem else { return }
         if let hash = PasteService.shared.writeToPasteboard(item) {
             ClipboardMonitor.shared.ignore(hash: hash)

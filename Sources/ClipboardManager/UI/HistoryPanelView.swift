@@ -28,6 +28,10 @@ struct HistoryPanelView: View {
                 itemList
             }
 
+            if !viewModel.pasteQueue.isEmpty {
+                queueBar
+            }
+
             Divider()
             footer
         }
@@ -63,6 +67,13 @@ struct HistoryPanelView: View {
                     viewModel.onRequestClose?()
                     return .handled
                 }
+                .onKeyPress { press in
+                    if press.modifiers.contains(.command), press.key == .return {
+                        viewModel.enqueueSelected()
+                        return .handled
+                    }
+                    return .ignored
+                }
                 .onSubmit {
                     viewModel.pasteSelected()
                 }
@@ -92,6 +103,10 @@ struct HistoryPanelView: View {
                                 Button(item.pinned ? "取消置顶" : "置顶") {
                                     viewModel.togglePin(item)
                                 }
+                                Button("加入粘贴队列") {
+                                    viewModel.selectedID = item.id
+                                    viewModel.enqueueSelected()
+                                }
                                 Button("删除", role: .destructive) {
                                     viewModel.deleteItem(item)
                                 }
@@ -108,6 +123,34 @@ struct HistoryPanelView: View {
                 }
             }
         }
+    }
+
+    // MARK: - 队列条
+
+    private var queueBar: some View {
+        HStack(spacing: 8) {
+            Image(systemName: "list.number")
+                .font(.system(size: 11))
+                .foregroundStyle(Color.accentColor)
+            Text("待粘贴 \(viewModel.pasteQueue.count) 项")
+                .font(.system(size: 11, weight: .medium))
+            Text("关闭面板后依次粘贴")
+                .font(.system(size: 10))
+                .foregroundStyle(.tertiary)
+            Spacer()
+            Button {
+                viewModel.clearQueue()
+            } label: {
+                Image(systemName: "xmark.circle.fill")
+                    .font(.system(size: 12))
+                    .foregroundStyle(.tertiary)
+            }
+            .buttonStyle(.plain)
+            .help("清空队列")
+        }
+        .padding(.horizontal, 12)
+        .padding(.vertical, 6)
+        .background(Color.accentColor.opacity(0.08))
     }
 
     // MARK: - 空状态 / 底部
@@ -127,6 +170,7 @@ struct HistoryPanelView: View {
         HStack(spacing: 14) {
             Text("↑↓ 选择")
             Text("回车 粘贴")
+            Text("⌘↵ 入队")
             Spacer()
             Button {
                 viewModel.openSettings()
