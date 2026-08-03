@@ -195,6 +195,7 @@ struct HistoryPanelView: View {
 private struct HistoryRow: View {
     let item: ClipboardItem
     let isSelected: Bool
+@State private var isHovering = false
 
     var body: some View {
         HStack(spacing: 10) {
@@ -223,12 +224,21 @@ private struct HistoryRow: View {
         }
         .padding(.horizontal, 12)
         .padding(.vertical, 8)
-        .background(isSelected ? Color.accentColor : Color.clear)
+        .background(rowBackground)
+        .onHover { hovering in
+            isHovering = hovering
+        }
         .overlay(alignment: .bottom) {
             if !isSelected {
                 Divider()
             }
         }
+    }
+
+    private var rowBackground: Color {
+        if isSelected { return Color.accentColor }
+        if isHovering { return Color.primary.opacity(0.045) }
+        return Color.clear
     }
 
     private var iconName: String {

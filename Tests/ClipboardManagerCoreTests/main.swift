@@ -106,6 +106,7 @@ private func testSearchMatchesText() throws {
     expectEqual(result.first?.text, "SwiftUI 开发笔记", "命中内容正确")
 }
 
+
 private func testPinnedItemSurvivesLimitCleanup() throws {
     let tempDir = FileManager.default.temporaryDirectory
         .appendingPathComponent("CoreTests-\(UUID().uuidString)", isDirectory: true)
@@ -116,27 +117,28 @@ private func testPinnedItemSurvivesLimitCleanup() throws {
     defer { AppSettings.shared.historyLimit = 5000 }
 
     let store = ClipboardStore(dbURL: tempDir.appendingPathComponent("test.sqlite"))
-    for i in 0..<5 {
+
+    for i in 0..<60 {
         store.upsert(NewClipboardItem(kind: .text, text: "条目 \(i)", hash: "h\(i)"))
     }
-    waitForStore()
-
     let semaphore = DispatchSemaphore(value: 0)
     var pinnedID: Int64?
     store.fetchAll { items in
-        pinnedID = items.last?.id
+        pinnedID = items.first?.id
         semaphore.signal()
     }
     _ = semaphore.wait(timeout: .now() + 2)
+
 
     store.setPinned(id: pinnedID!, pinned: true) {
         semaphore.signal()
     }
     _ = semaphore.wait(timeout: .now() + 2)
 
-    store.upsert(NewClipboardItem(kind: .text, text: "新条目", hash: "new"))
-    waitForStore()
-
+    // 再插入 40 条：第 100 次插入触发清理，应保留置顶 1 条 + 未置顶 3 条
+    for i in 60..<100 {
+        store.upsert(NewClipboardItem(kind: .text, text: "条目 \(i)", hash: "h\(i)"))
+    }
     var all: [ClipboardItem] = []
     store.fetchAll { items in
         all = items
@@ -147,7 +149,6 @@ private func testPinnedItemSurvivesLimitCleanup() throws {
     expectEqual(all.count, 4, "容量清理后应保留 3 + 1 条置顶")
     expect(all.contains { $0.id == pinnedID }, "置顶条目应保留")
 }
-
 private func testClearRemovesEverything() throws {
     let tempDir = FileManager.default.temporaryDirectory
         .appendingPathComponent("CoreTests-\(UUID().uuidString)", isDirectory: true)
@@ -277,6 +278,55 @@ private func testHotKeyRegistration() {
     HotKeyService.unregister()
 }
 
+
+private func testPerformanceWith10kItems() throws {
+    let tempDir = FileManager.default.temporaryDirectory
+        .appendingPathComponent("PerfTests-\(UUID().uuidString)", isDirectory: true)
+    try FileManager.default.createDirectory(at: tempDir, withIntermediateDirectories: true)
+    defer { try? FileManager.default.removeItem(at: tempDir) }
+
+    AppSettings.shared.historyLimit = 20000
+    defer { AppSettings.shared.historyLimit = 5000 }
+
+    let store = ClipboardStore(dbURL: tempDir.appendingPathComponent("perf.sqlite"))
+
+    let insertStart = Date()
+    for i in 0..<10000 {
+        store.upsert(NewClipboardItem(
+            kind: .text,
+            text: "性能测试条目 \(i) 的内容，用于验证大数据量下的流畅度",
+            hash: "perf\(i)"
+        ))
+    }
+    let semaphore = DispatchSemaphore(value: 0)
+    store.fetchAll { _ in semaphore.signal() }
+    _ = semaphore.wait(timeout: .now() + 20)
+    let insertTime = Date().timeIntervalSince(insertStart)
+
+    let fetchStart = Date()
+    var count = 0
+    store.fetchAll { items in
+        count = items.count
+        semaphore.signal()
+    }
+    _ = semaphore.wait(timeout: .now() + 5)
+    let fetchTime = Date().timeIntervalSince(fetchStart)
+
+    let searchStart = Date()
+    var hits = 0
+    store.search("性能测试条目 9999") { items in
+        hits = items.count
+        semaphore.signal()
+    }
+    _ = semaphore.wait(timeout: .now() + 5)
+    let searchTime = Date().timeIntervalSince(searchStart)
+
+    expectEqual(count, 10000, "10000 条全部可读取")
+    expect(hits >= 1, "搜索能命中目标")
+    print(String(format: "📊 性能: 插入 10000 条 %.2fs / 全量读取 %.3fs / 搜索 %.3fs", insertTime, fetchTime, searchTime))
+    expect(fetchTime < 1.0, "全量读取 10000 条 < 1s")
+    expect(searchTime < 1.0, "搜索 < 1s")
+}
 // MARK: - 运行
 
 do {
@@ -288,6 +338,7 @@ do {
     testPasteText()
     try testPasteFile()
     try testPasteImage()
+    try testPerformanceWith10kItems()
     testHotKeyRegistration()
 } catch {
     failed += 1

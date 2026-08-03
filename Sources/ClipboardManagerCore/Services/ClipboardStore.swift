@@ -9,6 +9,7 @@ public final class ClipboardStore {
     public static let shared = ClipboardStore()
 
     private var db: OpaquePointer?
+    private var insertCount = 0
     private let queue = DispatchQueue(label: "com.huxiaolong.clipboard.store", qos: .userInitiated)
 
     private let dbURL: URL
@@ -167,6 +168,15 @@ public final class ClipboardStore {
         return items
     }
 
+    private func scalarCount(_ sql: String) -> Int {
+        guard let db else { return 0 }
+        var stmt: OpaquePointer?
+        guard sqlite3_prepare_v2(db, sql, -1, &stmt, nil) == SQLITE_OK else { return 0 }
+        defer { sqlite3_finalize(stmt) }
+        guard sqlite3_step(stmt) == SQLITE_ROW else { return 0 }
+        return Int(sqlite3_column_int64(stmt, 0))
+    }
+
     private func columnString(_ stmt: OpaquePointer?, _ index: Int32) -> String {
         columnStringOrNil(stmt, index) ?? ""
     }
@@ -203,7 +213,10 @@ public final class ClipboardStore {
                      item.filePaths.isEmpty ? nil : self.encodeFilePaths(item.filePaths), item.hash, now, now]
                 )
             }
-            self.enforceLimit()
+            self.insertCount += 1
+            if self.insertCount % 25 == 0 {
+                self.enforceLimit()
+            }
         }
     }
 
@@ -216,7 +229,9 @@ public final class ClipboardStore {
     }
 
     private func enforceLimit() {
+        let total = scalarCount("SELECT COUNT(*) FROM items WHERE pinned = 0")
         let limit = AppSettings.shared.historyLimit
+        guard total > limit + 25 else { return }
         execute(
             """
             DELETE FROM items

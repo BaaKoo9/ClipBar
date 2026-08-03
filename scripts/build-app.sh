@@ -6,6 +6,14 @@ CONFIG="${1:-release}"
 APP_NAME="Clipboard Manager"
 
 cd "$ROOT"
+
+# 图标不存在时先生成
+if [ ! -f "$ROOT/Resources/AppIcon.icns" ]; then
+    echo "生成 App 图标…"
+    swift Tools/GenerateIcon.swift
+    iconutil -c icns Resources/AppIcon.iconset -o Resources/AppIcon.icns
+fi
+
 swift build -c "$CONFIG" --product ClipboardManager
 
 APP_DIR="$ROOT/dist/$APP_NAME.app"
@@ -14,6 +22,7 @@ mkdir -p "$APP_DIR/Contents/MacOS" "$APP_DIR/Contents/Resources"
 
 cp "$ROOT/.build/$CONFIG/ClipboardManager" "$APP_DIR/Contents/MacOS/"
 cp "$ROOT/Resources/Info.plist" "$APP_DIR/Contents/Info.plist"
+cp "$ROOT/Resources/AppIcon.icns" "$APP_DIR/Contents/Resources/"
 
 codesign --force --deep --sign - "$APP_DIR"
 

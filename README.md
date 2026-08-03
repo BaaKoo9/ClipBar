@@ -1,2 +1,50 @@
-# clipboard-manager
-A from-scratch, personal macOS clipboard manager (SwiftUI)
+# Clipboard Manager
+
+一个**本地优先、高性能、简约**的 macOS 剪贴板管理器。键盘流设计：呼出面板 → 方向键选择 → 回车粘贴，全程不碰鼠标。
+
+## 功能
+
+- 菜单栏常驻，全局快捷键呼出面板（默认 `⌥⌘V`，可在设置中自定义录制）
+- 自动记录：文本、链接、图片、文件引用
+- 历史列表：类型图标、内容预览、相对时间、置顶标记
+- 即时搜索（输入即过滤）
+- 置顶/收藏（不受容量清理影响）
+- 去重：相同内容自动刷新时间，不重复堆积
+- **顺序粘贴**：`⌘+回车` 收集多条，关闭面板后按序自动粘贴
+- 设置：开机自启、历史上限、自动粘贴（辅助功能权限）、忽略指定 App 的复制、清空历史
+- **隐私：零网络权限，所有数据仅存本机**（SQLite + 图片缓存）
+
+## 构建
+
+需要 macOS 14+，仅依赖 Xcode CommandLineTools（无需完整 Xcode）：
+
+```bash
+./scripts/build-app.sh          # 生成 dist/Clipboard Manager.app
+./scripts/make-dmg.sh           # 生成 dist/Clipboard-Manager.dmg
+./scripts/run-tests.sh          # 运行核心单元测试（存储/去重/搜索/回填/热键/性能）
+```
+
+## 测试
+
+```bash
+swift run CoreTests
+```
+
+覆盖：插入/读取、去重、搜索、置顶保护、清空、文本/图片/文件回填、全局热键注册、10000 条性能压测（全量读取 <10ms、搜索 <5ms）。
+
+## 技术栈
+
+- Swift + SwiftUI + AppKit（无第三方依赖）
+- SQLite（系统库）：串行队列写入、延迟容量清理
+- Carbon RegisterEventHotKey：全局快捷键（无需辅助功能权限）
+- 图片：PNG 规范化存储 + JPEG 缩略图预览
+
+## 路线图
+
+- [x] 剪贴板监听与本地存储
+- [x] 历史面板、搜索、回填
+- [x] 可自定义全局快捷键
+- [x] 顺序粘贴、置顶、忽略 App、开机自启
+- [x] App 图标、DMG 打包
+- [ ] 深色模式细节打磨、更多类型识别（颜色、代码块）
+- [ ] 多设备同步（iCloud 私有数据库）
