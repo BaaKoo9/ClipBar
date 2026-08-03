@@ -6,6 +6,14 @@ struct HistoryPanelView: View {
     @FocusState private var searchFocused: Bool
 
     var body: some View {
+        if viewModel.showsSettings {
+            SettingsView(viewModel: viewModel)
+        } else {
+            historyContent
+        }
+    }
+
+    private var historyContent: some View {
         VStack(spacing: 0) {
             searchField
                 .padding(.horizontal, 12)
@@ -119,10 +127,21 @@ struct HistoryPanelView: View {
         HStack(spacing: 14) {
             Text("↑↓ 选择")
             Text("回车 粘贴")
-            Text("⌥⌘V 呼出")
+            Spacer()
+            Button {
+                viewModel.openSettings()
+            } label: {
+                Image(systemName: "gearshape")
+                    .font(.system(size: 12))
+                    .foregroundStyle(.tertiary)
+                    .frame(width: 22, height: 22)
+            }
+            .buttonStyle(.plain)
+            .help("设置")
         }
         .font(.system(size: 10))
         .foregroundStyle(.tertiary)
+        .padding(.horizontal, 12)
         .padding(.vertical, 6)
     }
 }

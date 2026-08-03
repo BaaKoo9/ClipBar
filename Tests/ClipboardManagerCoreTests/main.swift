@@ -271,6 +271,12 @@ private func testPasteImage() throws {
     expect(written != nil && Hashing.sha256Hex(written!) == hash && !written!.isEmpty, "图片已按 PNG 写回剪贴板")
 }
 
+private func testHotKeyRegistration() {
+    let ok = HotKeyService.shared.register(keyCode: 9, modifiers: 2304) {}
+    expect(ok, "⌥⌘V 全局快捷键注册成功")
+    HotKeyService.unregister()
+}
+
 // MARK: - 运行
 
 do {
@@ -282,6 +288,7 @@ do {
     testPasteText()
     try testPasteFile()
     try testPasteImage()
+    testHotKeyRegistration()
 } catch {
     failed += 1
     print("❌ 测试抛出异常: \(error)")

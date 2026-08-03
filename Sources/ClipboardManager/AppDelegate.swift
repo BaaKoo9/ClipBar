@@ -15,6 +15,27 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate {
         setupStatusItem()
         setupPopover()
         panelViewModel.loadHistory()
+        registerHotKey()
+
+        NotificationCenter.default.addObserver(
+            forName: .clipboardHotKeyChanged,
+            object: nil,
+            queue: .main
+        ) { [weak self] _ in
+            self?.registerHotKey()
+        }
+    }
+
+    // MARK: - 全局快捷键
+
+    private func registerHotKey() {
+        let settings = AppSettings.shared
+        HotKeyService.shared.register(
+            keyCode: settings.hotKeyCode,
+            modifiers: settings.hotKeyModifiers
+        ) { [weak self] in
+            self?.togglePanel(nil)
+        }
     }
 
     // MARK: - Status item
@@ -28,9 +49,49 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate {
             )
             button.image?.isTemplate = true
             button.target = self
-            button.action = #selector(togglePanel(_:))
+            button.action = #selector(handleStatusItemClick(_:))
+            button.sendAction(on: [.leftMouseUp, .rightMouseUp])
         }
         statusItem = item
+    }
+
+    @objc private func handleStatusItemClick(_ sender: Any?) {
+        guard let button = statusItem?.button else { return }
+        let eventType = NSApp.currentEvent?.type ?? .leftMouseUp
+        if eventType == .rightMouseUp {
+            showStatusMenu(relativeTo: button)
+        } else {
+            togglePanel(sender)
+        }
+    }
+
+    private func showStatusMenu(relativeTo view: NSView) {
+        let menu = NSMenu()
+
+        let showItem = NSMenuItem(title: "显示剪贴板面板", action: #selector(togglePanel(_:)), keyEquivalent: "")
+        showItem.target = self
+
+        let settingsItem = NSMenuItem(title: "设置…", action: #selector(openSettings(_:)), keyEquivalent: "")
+        settingsItem.target = self
+
+        menu.addItem(showItem)
+        menu.addItem(settingsItem)
+        menu.addItem(.separator())
+        menu.addItem(NSMenuItem(title: "退出 Clipboard Manager", action: #selector(quitApp(_:)), keyEquivalent: "q"))
+
+        NSMenu.popUpContextMenu(menu, with: NSApp.currentEvent ?? NSEvent(), for: view)
+    }
+
+    @objc private func openSettings(_ sender: Any?) {
+        guard let popover, let button = statusItem?.button else { return }
+        if !popover.isShown {
+            showPanel(relativeTo: button)
+        }
+        panelViewModel.openSettings()
+    }
+
+    @objc private func quitApp(_ sender: Any?) {
+        NSApp.terminate(nil)
     }
 
     // MARK: - Popover

@@ -8,6 +8,7 @@ final class PanelViewModel: ObservableObject {
     @Published var searchText = ""
     @Published var items: [ClipboardItem] = []
     @Published var selectedID: Int64?
+    @Published var showsSettings = false
 
     /// AppDelegate 注入：请求关闭面板（Esc、粘贴完成后等）。
     var onRequestClose: (() -> Void)?
@@ -98,5 +99,15 @@ final class PanelViewModel: ObservableObject {
         ClipboardStore.shared.delete(id: item.id) { [weak self] in
             DispatchQueue.main.async { self?.refresh() }
         }
+    }
+
+    func clearAllHistory() {
+        ClipboardStore.shared.clear { [weak self] in
+            DispatchQueue.main.async { self?.refresh() }
+        }
+    }
+
+    func openSettings() {
+        showsSettings = true
     }
 }
