@@ -10,6 +10,8 @@ final class ToastWindowController {
     private var window: NSPanel?
     private var hideTask: DispatchWorkItem?
 
+    var onQueueClose: (() -> Void)?
+
     private var queueWindow: NSPanel?
     private var queueHosting: NSHostingController<QueueListView>?
     private var queueHideTask: DispatchWorkItem?
@@ -80,9 +82,15 @@ final class ToastWindowController {
         DebugLog.write("队列窗口：显示/更新 \(items.count) 条")
         queueHideTask?.cancel()
 
+        // 先清理可能残留的旧窗口，再重建
+        if let oldQueueWindow = queueWindow, oldQueueWindow.isVisible {
+            oldQueueWindow.orderOut(nil)
+        }
+
         // 每次重建内容并替换，确保实时刷新
         let hosting = NSHostingController(rootView: QueueListView(items: items, onClose: { [weak self] in
             self?.hideQueue()
+            self?.onQueueClose?()
         }))
         if let queueWindow {
             queueWindow.contentViewController = hosting
@@ -133,6 +141,7 @@ final class ToastWindowController {
             queueWindow.animator().alphaValue = 0
         }) { [weak self] in
             queueWindow.orderOut(nil)
+            self?.queueWindow = nil
             self?.queueHosting = nil
         }
     }

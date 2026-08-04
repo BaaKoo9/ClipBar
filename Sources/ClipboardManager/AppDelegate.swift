@@ -179,6 +179,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         controller.prepare()
         panelController = controller
 
+        // 队列提示框 X：关闭提示并清空队列
+        ToastWindowController.shared.onQueueClose = { [weak self] in
+            self?.panelViewModel.clearQueue()
+        }
+
         // 面板内齿轮 → 独立设置窗口
         panelViewModel.onOpenSettings = { [weak self] in
             self?.panelController?.hide(animated: false)
