@@ -323,12 +323,13 @@ final class PanelViewModel: ObservableObject {
                 self.injectPaste(to: PasteService.frontmostPID())
             }
         }
-        ToastWindowController.shared.show(
-            title: pasteQueue.isEmpty ? "已全部粘贴" : "已出队（剩 \(pasteQueue.count)）",
-            message: item.previewLine,
-            systemImage: "arrow.up.doc"
-        )
+        if pasteQueue.isEmpty {
+            ToastWindowController.shared.hideQueue()
+        } else {
+            ToastWindowController.shared.showQueue(items: pasteQueue)
+        }
     }
+
 
     // MARK: - 图片落盘
 

@@ -81,15 +81,16 @@ final class ToastWindowController {
         DebugLog.write("队列窗口：显示/更新 \(items.count) 条")
         queueHideTask?.cancel()
 
-        let content = QueueListView(items: items)
-        if let queueWindow, let queueHosting {
-            queueHosting.rootView = content
+        // 每次重建内容并替换，确保实时刷新
+        let hosting = NSHostingController(rootView: QueueListView(items: items))
+        if let queueWindow {
+            queueWindow.contentViewController = hosting
             queueWindow.makeKeyAndOrderFront(nil)
             queueWindow.alphaValue = 1
+            queueHosting = hosting
             return
         }
 
-        let hosting = NSHostingController(rootView: content)
         let panel = NSPanel(
             contentRect: NSRect(x: 0, y: 0, width: 300, height: 320),
             styleMask: [.borderless, .nonactivatingPanel],
