@@ -25,6 +25,10 @@ private let tapCallback: CGEventTapCallBack = { _, type, event, _ in
         return Unmanaged.passUnretained(event)
     }
     let keyCode = Int(event.getIntegerValueField(.keyboardEventKeycode))
+    // 过滤按住不放的自动重复，避免重复入队/出队
+    if event.getIntegerValueField(.keyboardEventAutorepeat) != 0 {
+        return Unmanaged.passUnretained(event)
+    }
     let carbonFlags = HotKeyService.carbonModifiers(from: event.flags)
     if let tag = HotKeyService.shared.matchedTag(keyCode: keyCode, modifiers: carbonFlags) {
         HotKeyService.shared.fire(tag: tag)

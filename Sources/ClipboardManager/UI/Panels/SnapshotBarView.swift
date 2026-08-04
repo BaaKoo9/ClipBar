@@ -242,7 +242,7 @@ struct SnapshotBarView: View {
         HStack(spacing: 16) {
             Text("←→ 选择")
             Text("回车 粘贴")
-            Text("⌘↵ 入队")
+            Text("⌘+点击/⌘↵ 入队")
             Text("Esc 关闭")
             Spacer()
             Text("⌥⌘E 入队复制 · ⌥⌘D 出队粘贴")

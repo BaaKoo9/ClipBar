@@ -141,11 +141,20 @@ final class PanelViewModel: ObservableObject {
         pasteQueue = []
     }
 
+    /// 入队串行队列：保证快捷键入队顺序与用户操作一致（图片处理是异步的，不串行会乱序）。
+    private let enqueueQueue = DispatchQueue(label: "com.huxiaolong.clipboard.enqueue")
+
     /// 全局快捷键：把当前系统剪贴板内容加入队列。
     func enqueueFromClipboard() {
+        enqueueQueue.async { [weak self] in
+            self?.performEnqueueFromClipboard()
+        }
+    }
+
+    private func performEnqueueFromClipboard() {
         let pasteboard = NSPasteboard.general
 
-        // 文本：直接入队，无 IO 延迟
+        // 文本：直接入队
         if let text = pasteboard.string(forType: .string), !text.isEmpty {
             let item = ClipboardItem(
                 id: -1,
@@ -160,25 +169,33 @@ final class PanelViewModel: ObservableObject {
                 createdAt: Date(),
                 updatedAt: Date()
             )
-            pasteQueue.append(item)
-            showEnqueueToast(item)
+            enqueueAppend(item)
             return
         }
 
-
-        // 图片
+        // 图片：优先复用历史缓存，否则在本队列落盘，保证入队顺序
         if let imageData = pasteboard.data(forType: .png) ?? pasteboard.data(forType: .tiff) {
             let hash = Hashing.sha256Hex(imageData)
-            enqueueFromHistoryOrCreate(
-                hash: hash,
-                kind: .image,
-                text: nil,
-                rtfPath: nil,
-                imagePath: nil,
-                originalImagePath: nil,
-                filePaths: [],
-                pendingImageData: imageData
-            )
+            if let existing = ClipboardStore.shared.itemSync(hash: hash) {
+                enqueueAppend(existing)
+                return
+            }
+            if let (original, thumb) = saveImageSync(data: imageData, hash: hash) {
+                let item = ClipboardItem(
+                    id: -1,
+                    kind: .image,
+                    text: nil,
+                    rtfPath: nil,
+                    imagePath: thumb,
+                    originalImagePath: original,
+                    filePaths: [],
+                    hash: hash,
+                    pinned: false,
+                    createdAt: Date(),
+                    updatedAt: Date()
+                )
+                enqueueAppend(item)
+            }
             return
         }
 
@@ -188,98 +205,29 @@ final class PanelViewModel: ObservableObject {
             options: [.urlReadingFileURLsOnly: true]
         ) as? [URL], !urls.isEmpty {
             let paths = urls.map(\.path)
-            enqueueFromHistoryOrCreate(
-                hash: Hashing.sha256Hex(filePaths: paths),
+            let item = ClipboardItem(
+                id: -1,
                 kind: .file,
                 text: paths.joined(separator: "\n"),
                 rtfPath: nil,
                 imagePath: nil,
                 originalImagePath: nil,
-                filePaths: paths
+                filePaths: paths,
+                hash: Hashing.sha256Hex(filePaths: paths),
+                pinned: false,
+                createdAt: Date(),
+                updatedAt: Date()
             )
+            enqueueAppend(item)
             return
         }
 
-        ToastWindowController.shared.show(title: "无法入队", message: "剪贴板为空或不支持的类型", systemImage: "exclamationmark.triangle")
-    }
-
-    private func enqueueFromHistoryOrCreate(
-        hash: String,
-        kind: ClipboardItem.Kind,
-        text: String?,
-        rtfPath: String?,
-        imagePath: String?,
-        originalImagePath: String?,
-        filePaths: [String],
-        pendingImageData: Data? = nil
-    ) {
-        ClipboardStore.shared.item(hash: hash) { [weak self] existing in
-            DispatchQueue.main.async {
-                guard let self else { return }
-                if let existing {
-                    self.pasteQueue.append(existing)
-                    self.showEnqueueToast(existing)
-                    return
-                }
-                // 历史中没有：图片需要先落盘才能回填
-                if let data = pendingImageData {
-                    self.savePendingImage(data: data, hash: hash) { original, thumb in
-                        let item = ClipboardItem(
-                            id: -1,
-                            kind: .image,
-                            text: nil,
-                            rtfPath: nil,
-                            imagePath: thumb,
-                            originalImagePath: original,
-                            filePaths: [],
-                            hash: hash,
-                            pinned: false,
-                            createdAt: Date(),
-                            updatedAt: Date()
-                        )
-                        self.pasteQueue.append(item)
-                        self.showEnqueueToast(item)
-                    }
-                } else {
-                    let item = ClipboardItem(
-                        id: -1,
-                        kind: kind,
-                        text: text,
-                        rtfPath: rtfPath,
-                        imagePath: imagePath,
-                        originalImagePath: originalImagePath,
-                        filePaths: filePaths,
-                        hash: hash,
-                        pinned: false,
-                        createdAt: Date(),
-                        updatedAt: Date()
-                    )
-                    self.pasteQueue.append(item)
-                    self.showEnqueueToast(item)
-                }
-            }
-        }
-    }
-
-    private func savePendingImage(data: Data, hash: String, completion: @escaping (String?, String?) -> Void) {
-        let directory = ClipboardStore.defaultImagesDirectory()
-        let originalURL = directory.appendingPathComponent("\(hash).data")
-        let thumbURL = directory.appendingPathComponent("\(hash)_thumb.jpg")
-
-        DispatchQueue.global(qos: .userInitiated).async {
-            do {
-                try data.write(to: originalURL)
-                let thumbData = Self.makeThumbnail(from: data, maxDimension: 512)
-                try thumbData?.write(to: thumbURL)
-                DispatchQueue.main.async {
-                    completion(originalURL.path, thumbURL.path)
-                }
-            } catch {
-                print("保存入队图片失败: \(error)")
-                DispatchQueue.main.async {
-                    completion(nil, nil)
-                }
-            }
+        DispatchQueue.main.async {
+            ToastWindowController.shared.show(
+                title: "无法入队",
+                message: "剪贴板为空或不支持的类型",
+                systemImage: "exclamationmark.triangle"
+            )
         }
     }
 
@@ -307,6 +255,30 @@ final class PanelViewModel: ObservableObject {
         image.draw(in: NSRect(origin: .zero, size: target))
         NSGraphicsContext.restoreGraphicsState()
         return rep.representation(using: .jpeg, properties: [.compressionFactor: 0.8])
+    }
+
+    private func enqueueAppend(_ item: ClipboardItem) {
+        DispatchQueue.main.async { [weak self] in
+            guard let self else { return }
+            self.pasteQueue.append(item)
+            self.showEnqueueToast(item)
+        }
+    }
+
+    /// 在入队队列中同步保存图片（不阻塞主线程）。
+    private func saveImageSync(data: Data, hash: String) -> (String, String)? {
+        let directory = ClipboardStore.defaultImagesDirectory()
+        let originalURL = directory.appendingPathComponent("\(hash).data")
+        let thumbURL = directory.appendingPathComponent("\(hash)_thumb.jpg")
+        do {
+            try data.write(to: originalURL)
+            let thumbData = Self.makeThumbnail(from: data, maxDimension: 512)
+            try thumbData?.write(to: thumbURL)
+            return (originalURL.path, thumbURL.path)
+        } catch {
+            print("保存入队图片失败: \(error)")
+            return nil
+        }
     }
 
     private func showEnqueueToast(_ item: ClipboardItem) {

@@ -286,6 +286,18 @@ public final class ClipboardStore {
     // MARK: - 读取
 
     /// 按内容 hash 精确查找（用于入队复制时复用历史缓存）。
+    /// 同步版精确查找（在专用串行队列中调用，不阻塞主线程）。
+    public func itemSync(hash: String) -> ClipboardItem? {
+        let semaphore = DispatchSemaphore(value: 0)
+        var result: ClipboardItem?
+        item(hash: hash) { item in
+            result = item
+            semaphore.signal()
+        }
+        _ = semaphore.wait(timeout: .now() + 3)
+        return result
+    }
+
     public func item(hash: String, completion: @escaping (ClipboardItem?) -> Void) {
         queue.async { [weak self] in
             let items = self?.query("SELECT \(Self.itemColumns) FROM items WHERE hash = ? LIMIT 1", [hash]) ?? []
