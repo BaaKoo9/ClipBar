@@ -78,6 +78,7 @@ final class ToastWindowController {
 
     /// 显示/更新队列列表（入队几条显示几条，最多 10 行，超出滚动）。
     func showQueue(items: [ClipboardItem]) {
+        DebugLog.write("队列窗口：显示/更新 \(items.count) 条")
         queueHideTask?.cancel()
 
         let content = QueueListView(items: items)
@@ -120,6 +121,7 @@ final class ToastWindowController {
 
     /// 队列清空/出队完成后隐藏队列窗口。
     func hideQueue() {
+        DebugLog.write("队列窗口：隐藏")
         queueHideTask?.cancel()
         guard let queueWindow, queueWindow.isVisible else {
             queueWindow?.orderOut(nil)

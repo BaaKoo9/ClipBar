@@ -24,6 +24,10 @@ cp "$ROOT/.build/$CONFIG/ClipboardManager" "$APP_DIR/Contents/MacOS/"
 cp "$ROOT/Resources/Info.plist" "$APP_DIR/Contents/Info.plist"
 cp "$ROOT/Resources/AppIcon.icns" "$APP_DIR/Contents/Resources/"
 
-codesign --force --deep --sign - "$APP_DIR"
+if security find-identity -p codesigning 2>/dev/null | grep -q "Clipboard Manager Dev"; then
+    codesign --force --deep --sign "Clipboard Manager Dev" "$APP_DIR"
+else
+    codesign --force --deep --sign - "$APP_DIR"
+fi
 
 echo "构建完成: $APP_DIR"
