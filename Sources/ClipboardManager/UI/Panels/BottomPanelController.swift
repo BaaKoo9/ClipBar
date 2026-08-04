@@ -1,4 +1,5 @@
 import AppKit
+import ClipboardManagerCore
 import SwiftUI
 
 /// 屏幕底部的快照面板控制器。
@@ -47,6 +48,7 @@ final class BottomPanelController: NSObject {
 
         let screen = NSScreen.main ?? NSScreen.screens[0]
         let visible = screen.visibleFrame
+        DebugLog.write("show 面板 screen=\(screen.frame) visible=\(visible.frame)")
         let width = visible.width - 32
         let height: CGFloat = 280
         let x = visible.midX - width / 2
@@ -59,6 +61,10 @@ final class BottomPanelController: NSObject {
         panel.alphaValue = 0
         NSApp.activate(ignoringOtherApps: true)
         panel.makeKeyAndOrderFront(nil)
+        // 防御：首次显示偶发失败时强制置前
+        if !panel.isVisible {
+            panel.orderFrontRegardless()
+        }
 
         NSAnimationContext.runAnimationGroup { context in
             context.duration = 0.22

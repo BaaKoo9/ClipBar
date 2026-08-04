@@ -112,8 +112,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         if eventType == .rightMouseUp {
             showStatusMenu(relativeTo: button)
         } else {
-            // 左键始终呼出并聚焦面板（避免 toggle 状态错乱）
-            panelController?.show()
+            // 左键：呼出/收起切换
+            togglePanel()
         }
     }
 
@@ -162,8 +162,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
             window.backgroundColor = .clear
             window.hasShadow = true
             window.isMovableByWindowBackground = true
-            window.level = .floating
-            window.collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary]
+            window.level = .normal
+            window.collectionBehavior = [.moveToActiveSpace]
             window.isReleasedWhenClosed = false
             window.center()
             settingsWindow = window
@@ -186,8 +186,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         }
     }
 
-    @objc private func togglePanel() {
+     private func togglePanel() {
         DebugLog.write("面板切换触发")
+        // 快捷键呼出只关心剪切板，设置窗口不随之出现
+        settingsWindow?.orderOut(nil)
         panelController?.toggle()
     }
 }
