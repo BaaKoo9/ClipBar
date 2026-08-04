@@ -1,16 +1,16 @@
 import CryptoKit
 import Foundation
 
-enum Hashing {
-    static func sha256Hex(_ data: Data) -> String {
+public enum Hashing {
+    public static func sha256Hex(_ data: Data) -> String {
         SHA256.hash(data: data).map { String(format: "%02x", $0) }.joined()
     }
 
-    static func sha256Hex(_ string: String) -> String {
+    public static func sha256Hex(_ string: String) -> String {
         sha256Hex(Data(string.utf8))
     }
 
-    static func sha256Hex(filePaths: [String]) -> String {
+    public static func sha256Hex(filePaths: [String]) -> String {
         let normalized = filePaths.map { ($0 as NSString).standardizingPath }.sorted().joined(separator: "\n")
         return sha256Hex(normalized)
     }

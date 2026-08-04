@@ -2,7 +2,8 @@ import AppKit
 import ClipboardManagerCore
 import SwiftUI
 
-struct HistoryPanelView: View {
+/// 屏幕底部的快照条：横向卡片列表 + 搜索 + 键盘导航。
+struct SnapshotBarView: View {
     @ObservedObject var viewModel: PanelViewModel
     @FocusState private var searchFocused: Bool
 
@@ -10,15 +11,13 @@ struct HistoryPanelView: View {
         if viewModel.showsSettings {
             SettingsView(viewModel: viewModel)
         } else {
-            historyContent
+            snapshotContent
         }
     }
 
-    private var historyContent: some View {
+    private var snapshotContent: some View {
         VStack(spacing: 0) {
-            searchField
-                .padding(.horizontal, 12)
-                .padding(.vertical, 10)
+            topBar
 
             Divider()
 
@@ -26,7 +25,7 @@ struct HistoryPanelView: View {
                 emptyState
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
             } else {
-                itemList
+                snapshotScroller
             }
 
             if !viewModel.pasteQueue.isEmpty {
@@ -34,10 +33,16 @@ struct HistoryPanelView: View {
             }
 
             Divider()
-            footer
+            hintBar
         }
-        .frame(width: 380, height: 440)
-        .background(Color.clear)
+        .frame(width: 860, height: 190)
+        .background(.ultraThinMaterial)
+        .clipShape(RoundedRectangle(cornerRadius: 20, style: .continuous))
+        .overlay(
+            RoundedRectangle(cornerRadius: 20, style: .continuous)
+                .stroke(Color.primary.opacity(0.08), lineWidth: 1)
+        )
+        .shadow(color: Color.black.opacity(0.18), radius: 40, y: 14)
         .onAppear {
             searchFocused = true
         }
@@ -46,21 +51,23 @@ struct HistoryPanelView: View {
         }
     }
 
-    // MARK: - 搜索框
+    // MARK: - 顶栏
 
-    private var searchField: some View {
-        HStack(spacing: 6) {
+    private var topBar: some View {
+        HStack(spacing: 10) {
             Image(systemName: "magnifyingglass")
+                .font(.system(size: 12))
                 .foregroundStyle(.secondary)
+
             TextField("搜索历史…", text: $viewModel.searchText)
                 .textFieldStyle(.plain)
                 .font(.system(size: 13))
                 .focused($searchFocused)
-                .onKeyPress(.upArrow) {
+                .onKeyPress(.leftArrow) {
                     viewModel.moveSelection(offset: -1)
                     return .handled
                 }
-                .onKeyPress(.downArrow) {
+                .onKeyPress(.rightArrow) {
                     viewModel.moveSelection(offset: 1)
                     return .handled
                 }
@@ -78,24 +85,35 @@ struct HistoryPanelView: View {
                 .onSubmit {
                     viewModel.pasteSelected()
                 }
+
+            Button {
+                viewModel.openSettings()
+            } label: {
+                Image(systemName: "gearshape")
+                    .font(.system(size: 12))
+                    .foregroundStyle(.secondary)
+                    .frame(width: 22, height: 22)
+            }
+            .buttonStyle(.plain)
+            .help("设置")
         }
-        .padding(.horizontal, 10)
-        .padding(.vertical, 7)
-        .background(Color.primary.opacity(0.05), in: Capsule())
+        .padding(.horizontal, 14)
+        .padding(.vertical, 8)
     }
 
-    // MARK: - 列表
+    // MARK: - 快照卡片
 
-    private var itemList: some View {
+    private var snapshotScroller: some View {
         ScrollViewReader { proxy in
-            ScrollView {
-                LazyVStack(spacing: 0) {
+            ScrollView(.horizontal, showsIndicators: false) {
+                LazyHStack(spacing: 10) {
                     ForEach(viewModel.items) { item in
-                        HistoryRow(
+                        SnapshotCard(
                             item: item,
                             isSelected: item.id == viewModel.selectedID,
                             highlight: viewModel.searchText.trimmingCharacters(in: .whitespacesAndNewlines)
                         )
+                        .frame(width: 210, height: 112)
                         .contentShape(Rectangle())
                         .onTapGesture {
                             viewModel.selectedID = item.id
@@ -105,16 +123,16 @@ struct HistoryPanelView: View {
                             viewModel.pasteSelected()
                         }
                         .contextMenu {
-                                if item.kind == .link, let text = item.text, let url = URL(string: text) {
-                                    Button("打开链接") {
-                                        NSWorkspace.shared.open(url)
-                                    }
+                            if item.kind == .link, let text = item.text, let url = URL(string: text) {
+                                Button("打开链接") {
+                                    NSWorkspace.shared.open(url)
                                 }
-                                if item.kind == .file, let first = item.filePaths.first {
-                                    Button("在 Finder 中显示") {
-                                        NSWorkspace.shared.activateFileViewerSelecting([URL(fileURLWithPath: first)])
-                                    }
+                            }
+                            if item.kind == .file, let first = item.filePaths.first {
+                                Button("在 Finder 中显示") {
+                                    NSWorkspace.shared.activateFileViewerSelecting([URL(fileURLWithPath: first)])
                                 }
+                            }
                             Button(item.pinned ? "取消置顶" : "置顶") {
                                 viewModel.togglePin(item)
                             }
@@ -128,7 +146,8 @@ struct HistoryPanelView: View {
                         }
                     }
                 }
-                .padding(.vertical, 4)
+                .padding(.horizontal, 14)
+                .padding(.vertical, 6)
             }
             .onChange(of: viewModel.selectedID) { _, newID in
                 if let newID {
@@ -147,9 +166,9 @@ struct HistoryPanelView: View {
             Image(systemName: "list.number")
                 .font(.system(size: 11))
                 .foregroundStyle(Color.accentColor)
-            Text("待粘贴 \(viewModel.pasteQueue.count) 项")
+            Text("待粘贴队列 \(viewModel.pasteQueue.count) 项")
                 .font(.system(size: 11, weight: .medium))
-            Text("关闭面板后依次粘贴")
+            Text("按出队快捷键逐个粘贴")
                 .font(.system(size: 10))
                 .foregroundStyle(.tertiary)
             Spacer()
@@ -163,17 +182,17 @@ struct HistoryPanelView: View {
             .buttonStyle(.plain)
             .help("清空队列")
         }
-        .padding(.horizontal, 12)
-        .padding(.vertical, 6)
+        .padding(.horizontal, 14)
+        .padding(.vertical, 5)
         .background(Color.accentColor.opacity(0.08))
     }
 
-    // MARK: - 空状态 / 底部
+    // MARK: - 空状态 / 提示
 
     private var emptyState: some View {
         VStack(spacing: 8) {
             Image(systemName: "doc.on.clipboard")
-                .font(.system(size: 26))
+                .font(.system(size: 24))
                 .foregroundStyle(.tertiary)
             Text(viewModel.searchText.isEmpty ? "复制内容会显示在这里" : "没有匹配的结果")
                 .font(.system(size: 13))
@@ -181,83 +200,74 @@ struct HistoryPanelView: View {
         }
     }
 
-    private var footer: some View {
-        HStack(spacing: 14) {
-            Text("↑↓ 选择")
+    private var hintBar: some View {
+        HStack(spacing: 16) {
+            Text("←→ 选择")
             Text("回车 粘贴")
             Text("⌘↵ 入队")
+            Text("Esc 关闭")
             Spacer()
-            Button {
-                viewModel.openSettings()
-            } label: {
-                Image(systemName: "gearshape")
-                    .font(.system(size: 12))
-                    .foregroundStyle(.tertiary)
-                    .frame(width: 22, height: 22)
-            }
-            .buttonStyle(.plain)
-            .help("设置")
+            Text("⌥⌘E 入队复制 · ⌥⌘D 出队粘贴")
+                .foregroundStyle(.tertiary)
         }
         .font(.system(size: 10))
-        .foregroundStyle(.tertiary)
-        .padding(.horizontal, 12)
-        .padding(.vertical, 6)
+        .foregroundStyle(.secondary)
+        .padding(.horizontal, 14)
+        .padding(.vertical, 5)
     }
 }
 
-// MARK: - 行
+// MARK: - 快照卡片
 
-private struct HistoryRow: View {
+private struct SnapshotCard: View {
     let item: ClipboardItem
     let isSelected: Bool
     let highlight: String
     @State private var isHovering = false
 
     var body: some View {
-        HStack(spacing: 10) {
-            if item.kind == .image {
-                ThumbnailView(path: item.imagePath)
-            } else {
-                Image(systemName: iconName)
-                    .font(.system(size: 13, weight: .medium))
-                    .foregroundStyle(isSelected ? .white : Color.secondary)
-                    .frame(width: 18)
-            }
-
-            VStack(alignment: .leading, spacing: 2) {
-                Text(highlightedPreview)
-                    .lineLimit(2)
-                    .foregroundStyle(isSelected ? .white : .primary)
-                Text("\(typeLabel) · \(Self.relativeTime(item.updatedAt))")
-                    .font(.system(size: 11))
+        VStack(alignment: .leading, spacing: 6) {
+            HStack(spacing: 5) {
+                if item.kind == .image {
+                    SnapshotThumbnail(path: item.imagePath, size: 30)
+                } else {
+                    Image(systemName: iconName)
+                        .font(.system(size: 11, weight: .medium))
+                        .foregroundStyle(isSelected ? .white : Color.secondary)
+                }
+                Text(typeLabel)
+                    .font(.system(size: 10, weight: .medium))
                     .foregroundStyle(isSelected ? Color.white.opacity(0.85) : Color.secondary)
+                Spacer(minLength: 0)
+                if item.pinned {
+                    Image(systemName: "pin.fill")
+                        .font(.system(size: 9))
+                        .foregroundStyle(isSelected ? .white : .orange)
+                }
             }
 
-            Spacer(minLength: 6)
+            Text(highlightedPreview)
+                .font(.system(size: 12))
+                .lineLimit(3)
+                .foregroundStyle(isSelected ? .white : .primary)
 
-            if item.pinned {
-                Image(systemName: "pin.fill")
-                    .font(.system(size: 10))
-                    .foregroundStyle(isSelected ? .white : .orange)
-            }
+            Spacer(minLength: 0)
         }
-        .padding(.horizontal, 12)
-        .padding(.vertical, 8)
-        .background(rowBackground)
+        .padding(10)
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+        .background(
+            isSelected ? Color.accentColor : (isHovering ? Color.white.opacity(0.7) : Color.white.opacity(0.5))
+        )
+        .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
+        .overlay(
+            RoundedRectangle(cornerRadius: 14, style: .continuous)
+                .stroke(isSelected ? Color.accentColor : Color.primary.opacity(0.1), lineWidth: isSelected ? 2 : 1)
+        )
+        .scaleEffect(isHovering && !isSelected ? 1.02 : 1)
+        .animation(.easeOut(duration: 0.15), value: isHovering)
         .onHover { hovering in
             isHovering = hovering
         }
-        .overlay(alignment: .bottom) {
-            if !isSelected {
-                Divider()
-            }
-        }
-    }
-
-    private var rowBackground: Color {
-        if isSelected { return Color.accentColor }
-        if isHovering { return Color.primary.opacity(0.045) }
-        return Color.clear
     }
 
     private var highlightedPreview: AttributedString {
@@ -270,16 +280,10 @@ private struct HistoryRow: View {
         var searchStart = lowerText.startIndex
         while let range = lowerText.range(of: lowerQuery, range: searchStart..<lowerText.endIndex) {
             if let attrRange = Range(range, in: attributed) {
-                attributed[attrRange].font = .system(size: 13, weight: .bold)
-                if isSelected {
-                    attributed[attrRange].foregroundColor = .white
-                } else {
-                    attributed[attrRange].foregroundColor = .accentColor
-                }
+                attributed[attrRange].font = .system(size: 12, weight: .bold)
+                attributed[attrRange].foregroundColor = isSelected ? .white : .accentColor
             }
-            if range.upperBound == searchStart {
-                break
-            }
+            if range.upperBound == searchStart { break }
             searchStart = range.upperBound
         }
         return attributed
@@ -302,23 +306,11 @@ private struct HistoryRow: View {
         case .file: "文件"
         }
     }
-
-    private static let relativeFormatter: RelativeDateTimeFormatter = {
-        let formatter = RelativeDateTimeFormatter()
-        formatter.locale = Locale(identifier: "zh_CN")
-        formatter.unitsStyle = .abbreviated
-        return formatter
-    }()
-
-    private static func relativeTime(_ date: Date) -> String {
-        relativeFormatter.localizedString(for: date, relativeTo: Date())
-    }
 }
 
-// MARK: - 缩略图
-
-private struct ThumbnailView: View {
+private struct SnapshotThumbnail: View {
     let path: String?
+    let size: CGFloat
     @State private var image: NSImage?
 
     private static let cache = NSCache<NSString, NSImage>()
@@ -330,17 +322,17 @@ private struct ThumbnailView: View {
                     .resizable()
                     .aspectRatio(contentMode: .fill)
             } else {
-                RoundedRectangle(cornerRadius: 8)
-                    .fill(Color.primary.opacity(0.05))
+                RoundedRectangle(cornerRadius: 7)
+                    .fill(Color.primary.opacity(0.08))
                     .overlay {
                         Image(systemName: "photo")
-                            .font(.system(size: 12))
+                            .font(.system(size: 10))
                             .foregroundStyle(.tertiary)
                     }
             }
         }
-        .frame(width: 40, height: 40)
-        .clipShape(RoundedRectangle(cornerRadius: 8))
+        .frame(width: size, height: size)
+        .clipShape(RoundedRectangle(cornerRadius: 7))
         .task(id: path) {
             guard let path else { return }
             if let cached = Self.cache.object(forKey: path as NSString) {

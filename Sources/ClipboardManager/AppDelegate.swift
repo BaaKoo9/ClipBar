@@ -3,44 +3,67 @@ import ClipboardManagerCore
 import SwiftUI
 
 @MainActor
-final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate {
+final class AppDelegate: NSObject, NSApplicationDelegate {
     private var statusItem: NSStatusItem?
-    private var popover: NSPopover?
+    private var panelController: BottomPanelController?
 
     private var panelViewModel = PanelViewModel()
+
+    private static let mainHotKeyTag: UInt32 = 1
+    private static let enqueueHotKeyTag: UInt32 = 2
+    private static let dequeueHotKeyTag: UInt32 = 3
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         NSApp.setActivationPolicy(.accessory)
         ClipboardMonitor.shared.start()
         setupStatusItem()
-        setupPopover()
+        setupPanel()
         panelViewModel.loadHistory()
-        registerHotKey()
+        registerHotKeys()
 
         NotificationCenter.default.addObserver(
             forName: .clipboardHotKeyChanged,
             object: nil,
             queue: .main
         ) { [weak self] _ in
-            self?.registerHotKey()
+            self?.registerHotKeys()
         }
     }
 
-    // MARK: - 全局快捷键
+    // MARK: - 全局快捷键（呼出 / 入队 / 出队）
 
-    private func registerHotKey() {
+    private func registerHotKeys() {
         let settings = AppSettings.shared
-        let ok = HotKeyService.shared.register(
+
+        let mainOK = HotKeyService.shared.register(
+            tag: Self.mainHotKeyTag,
             keyCode: settings.hotKeyCode,
             modifiers: settings.hotKeyModifiers
         ) { [weak self] in
-            self?.togglePanel(nil)
+            self?.togglePanel()
         }
-        let desc = KeyCodeMapper.displayString(keyCode: settings.hotKeyCode, modifiers: settings.hotKeyModifiers)
-        Self.appendLog("全局快捷键 \(desc) 注册\(ok ? "成功" : "失败")")
+        Self.appendLog("呼出 \(KeyCodeMapper.displayString(keyCode: settings.hotKeyCode, modifiers: settings.hotKeyModifiers))：\(mainOK ? "成功" : "失败")")
+
+        let enqueueOK = HotKeyService.shared.register(
+            tag: Self.enqueueHotKeyTag,
+            keyCode: settings.enqueueHotKeyCode,
+            modifiers: settings.enqueueHotKeyModifiers
+        ) { [weak self] in
+            self?.panelViewModel.enqueueFromClipboard()
+        }
+        Self.appendLog("入队 \(KeyCodeMapper.displayString(keyCode: settings.enqueueHotKeyCode, modifiers: settings.enqueueHotKeyModifiers))：\(enqueueOK ? "成功" : "失败")")
+
+        let dequeueOK = HotKeyService.shared.register(
+            tag: Self.dequeueHotKeyTag,
+            keyCode: settings.dequeueHotKeyCode,
+            modifiers: settings.dequeueHotKeyModifiers
+        ) { [weak self] in
+            self?.panelViewModel.dequeueAndPaste()
+        }
+        Self.appendLog("出队 \(KeyCodeMapper.displayString(keyCode: settings.dequeueHotKeyCode, modifiers: settings.dequeueHotKeyModifiers))：\(dequeueOK ? "成功" : "失败")")
     }
 
-    private static func appendLog(_ message: String) {
+    static func appendLog(_ message: String) {
         let dir = ClipboardStore.defaultDBURL().deletingLastPathComponent()
         let url = dir.appendingPathComponent("debug.log")
         let line = "\(Date()) \(message)\n"
@@ -76,14 +99,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate {
         if eventType == .rightMouseUp {
             showStatusMenu(relativeTo: button)
         } else {
-            togglePanel(sender)
+            togglePanel()
         }
     }
 
     private func showStatusMenu(relativeTo view: NSView) {
         let menu = NSMenu()
 
-        let showItem = NSMenuItem(title: "显示剪贴板面板", action: #selector(togglePanel(_:)), keyEquivalent: "")
+        let showItem = NSMenuItem(title: "显示剪贴板面板", action: #selector(togglePanelAction(_:)), keyEquivalent: "")
         showItem.target = self
 
         let settingsItem = NSMenuItem(title: "设置…", action: #selector(openSettings(_:)), keyEquivalent: "")
@@ -97,11 +120,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate {
         NSMenu.popUpContextMenu(menu, with: NSApp.currentEvent ?? NSEvent(), for: view)
     }
 
+    @objc private func togglePanelAction(_ sender: Any?) {
+        togglePanel()
+    }
+
     @objc private func openSettings(_ sender: Any?) {
-        guard let popover, let button = statusItem?.button else { return }
-        if !popover.isShown {
-            showPanel(relativeTo: button)
-        }
+        panelController?.show()
         panelViewModel.openSettings()
     }
 
@@ -109,43 +133,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate {
         NSApp.terminate(nil)
     }
 
-    // MARK: - Popover
+    // MARK: - 底部面板
 
-    private func setupPopover() {
-        let hosting = NSHostingController(rootView: HistoryPanelView(viewModel: panelViewModel))
-        let pop = NSPopover()
-        pop.contentViewController = hosting
-        pop.behavior = .transient
-        pop.animates = true
-        pop.delegate = self
-
-        panelViewModel.onRequestClose = { [weak self] in
-            self?.popover?.performClose(nil)
-        }
-
-        popover = pop
+    private func setupPanel() {
+        let controller = BottomPanelController(viewModel: panelViewModel)
+        panelController = controller
     }
 
-     private func togglePanel(_ sender: Any?) {
+    @objc private func togglePanel() {
         Self.appendLog("面板切换触发")
-        guard let popover, let button = statusItem?.button else { return }
-        if popover.isShown {
-            popover.performClose(sender)
-        } else {
-            showPanel(relativeTo: button)
-        }
-    }
-
-    private func showPanel(relativeTo view: NSView) {
-        guard let popover else { return }
-        NSApp.activate(ignoringOtherApps: true)
-        popover.show(relativeTo: view.bounds, of: view, preferredEdge: .minY)
-        panelViewModel.panelDidOpen()
-    }
-
-    // MARK: - NSPopoverDelegate
-
-    func popoverDidClose(_ notification: Notification) {
-        panelViewModel.panelDidClose()
+        panelController?.toggle()
     }
 }

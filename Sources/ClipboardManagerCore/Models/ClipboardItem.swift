@@ -21,7 +21,33 @@ public struct ClipboardItem: Identifiable, Equatable {
     public let createdAt: Date
     public let updatedAt: Date
 
-    /// 列表里显示的主文本。
+    public init(
+        id: Int64,
+        kind: Kind,
+        text: String?,
+        rtfPath: String?,
+        imagePath: String?,
+        originalImagePath: String?,
+        filePaths: [String],
+        hash: String,
+        pinned: Bool,
+        createdAt: Date,
+        updatedAt: Date
+    ) {
+        self.id = id
+        self.kind = kind
+        self.text = text
+        self.rtfPath = rtfPath
+        self.imagePath = imagePath
+        self.originalImagePath = originalImagePath
+        self.filePaths = filePaths
+        self.hash = hash
+        self.pinned = pinned
+        self.createdAt = createdAt
+        self.updatedAt = updatedAt
+    }
+
+    /// 列表里显示的主文本.
     public var displayText: String {
         switch kind {
         case .text, .link:

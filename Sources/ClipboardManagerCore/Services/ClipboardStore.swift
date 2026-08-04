@@ -285,6 +285,14 @@ public final class ClipboardStore {
 
     // MARK: - 读取
 
+    /// 按内容 hash 精确查找（用于入队复制时复用历史缓存）。
+    public func item(hash: String, completion: @escaping (ClipboardItem?) -> Void) {
+        queue.async { [weak self] in
+            let items = self?.query("SELECT \(Self.itemColumns) FROM items WHERE hash = ? LIMIT 1", [hash]) ?? []
+            completion(items.first)
+        }
+    }
+
     public func fetchAll(completion: @escaping ([ClipboardItem]) -> Void) {
         queue.async { [weak self] in
             let items = self?.query("SELECT \(Self.itemColumns) FROM items ORDER BY updated_at DESC, id DESC") ?? []

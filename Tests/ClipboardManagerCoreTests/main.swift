@@ -277,9 +277,9 @@ private func testPasteImage() throws {
 }
 
 private func testHotKeyRegistration() {
-    let ok = HotKeyService.shared.register(keyCode: 9, modifiers: 2304) {}
+    let ok = HotKeyService.shared.register(tag: 1, keyCode: 9, modifiers: 2304) {}
     expect(ok, "⌥⌘V 全局快捷键注册成功")
-    HotKeyService.unregister()
+    HotKeyService.unregisterAll()
 }
 
 

@@ -2,7 +2,7 @@ import AppKit
 import ClipboardManagerCore
 import Foundation
 
-/// 面板的共享状态：历史数据、选中项、搜索与回填。
+/// 面板的共享状态：历史数据、选中项、搜索、粘贴队列与 Toast。
 @MainActor
 final class PanelViewModel: ObservableObject {
     @Published var searchText = ""
@@ -32,7 +32,6 @@ final class PanelViewModel: ObservableObject {
     }
 
     func panelDidClose() {
-        flushQueue()
         if !searchText.isEmpty {
             searchText = ""
         }
@@ -57,32 +56,6 @@ final class PanelViewModel: ObservableObject {
         }
     }
 
-    /// 关闭面板时执行顺序粘贴：开启自动粘贴则逐个写回并注入 ⌘V，否则回填第一条。
-    private func flushQueue() {
-        guard !pasteQueue.isEmpty else { return }
-        let queue = pasteQueue
-        pasteQueue = []
-
-        if AppSettings.shared.autoPasteEnabled, PasteService.hasAccessibilityPermission {
-            for (index, item) in queue.enumerated() {
-                DispatchQueue.main.asyncAfter(deadline: .now() + 0.45 * Double(index)) { [weak self] in
-                    if let hash = PasteService.shared.writeToPasteboard(item) {
-                        self?.ignoreWritten(hash)
-                    }
-                    PasteService.injectCommandV()
-                }
-            }
-        } else {
-            if let first = queue.first, let hash = PasteService.shared.writeToPasteboard(first) {
-                ignoreWritten(hash)
-            }
-        }
-    }
-
-    private func ignoreWritten(_ hash: String) {
-        ClipboardMonitor.shared.ignore(hash: hash)
-    }
-
     private func apply(_ newItems: [ClipboardItem]) {
         items = newItems
         if let selectedID, items.contains(where: { $0.id == selectedID }) {
@@ -104,25 +77,9 @@ final class PanelViewModel: ObservableObject {
         selectedID = items[newIndex].id
     }
 
-    // MARK: - 操作
+    // MARK: - 基础操作
 
-    /// 入队当前选中项（⌘+回车），用于顺序粘贴。
-    func enqueueSelected() {
-        guard let item = selectedItem else { return }
-        pasteQueue.append(item)
-    }
-
-    func clearQueue() {
-        pasteQueue = []
-    }
-
-    /// 回车粘贴：队列为空时单条回填；队列非空时把选中项也入队，关闭面板后统一顺序粘贴。
     func pasteSelected() {
-        if !pasteQueue.isEmpty {
-            enqueueSelected()
-            onRequestClose?()
-            return
-        }
         guard let item = selectedItem else { return }
         if let hash = PasteService.shared.writeToPasteboard(item) {
             ClipboardMonitor.shared.ignore(hash: hash)
@@ -153,5 +110,215 @@ final class PanelViewModel: ObservableObject {
 
     func openSettings() {
         showsSettings = true
+    }
+
+    // MARK: - 粘贴队列
+
+    /// 面板内 ⌘+回车：把当前选中项加入队列。
+    func enqueueSelected() {
+        guard let item = selectedItem else { return }
+        pasteQueue.append(item)
+        ToastWindowController.shared.show(
+            title: "已入队（\(pasteQueue.count)）",
+            message: item.previewLine,
+            systemImage: "list.number"
+        )
+    }
+
+    func clearQueue() {
+        pasteQueue = []
+    }
+
+    /// 全局快捷键：把当前系统剪贴板内容加入队列。
+    func enqueueFromClipboard() {
+        let pasteboard = NSPasteboard.general
+
+        // 文本
+        if let text = pasteboard.string(forType: .string), !text.isEmpty {
+            enqueueFromHistoryOrCreate(
+                hash: Hashing.sha256Hex(text),
+                kind: text.hasPrefix("http://") || text.hasPrefix("https://") ? .link : .text,
+                text: text,
+                rtfPath: nil,
+                imagePath: nil,
+                originalImagePath: nil,
+                filePaths: []
+            )
+            return
+        }
+
+        // 图片
+        if let imageData = pasteboard.data(forType: .png) ?? pasteboard.data(forType: .tiff) {
+            let hash = Hashing.sha256Hex(imageData)
+            enqueueFromHistoryOrCreate(
+                hash: hash,
+                kind: .image,
+                text: nil,
+                rtfPath: nil,
+                imagePath: nil,
+                originalImagePath: nil,
+                filePaths: [],
+                pendingImageData: imageData
+            )
+            return
+        }
+
+        // 文件
+        if let urls = pasteboard.readObjects(
+            forClasses: [NSURL.self],
+            options: [.urlReadingFileURLsOnly: true]
+        ) as? [URL], !urls.isEmpty {
+            let paths = urls.map(\.path)
+            enqueueFromHistoryOrCreate(
+                hash: Hashing.sha256Hex(filePaths: paths),
+                kind: .file,
+                text: paths.joined(separator: "\n"),
+                rtfPath: nil,
+                imagePath: nil,
+                originalImagePath: nil,
+                filePaths: paths
+            )
+            return
+        }
+
+        ToastWindowController.shared.show(title: "无法入队", message: "剪贴板为空或不支持的类型", systemImage: "exclamationmark.triangle")
+    }
+
+    private func enqueueFromHistoryOrCreate(
+        hash: String,
+        kind: ClipboardItem.Kind,
+        text: String?,
+        rtfPath: String?,
+        imagePath: String?,
+        originalImagePath: String?,
+        filePaths: [String],
+        pendingImageData: Data? = nil
+    ) {
+        ClipboardStore.shared.item(hash: hash) { [weak self] existing in
+            DispatchQueue.main.async {
+                guard let self else { return }
+                if let existing {
+                    self.pasteQueue.append(existing)
+                    self.showEnqueueToast(existing)
+                    return
+                }
+                // 历史中没有：图片需要先落盘才能回填
+                if let data = pendingImageData {
+                    self.savePendingImage(data: data, hash: hash) { original, thumb in
+                        let item = ClipboardItem(
+                            id: -1,
+                            kind: .image,
+                            text: nil,
+                            rtfPath: nil,
+                            imagePath: thumb,
+                            originalImagePath: original,
+                            filePaths: [],
+                            hash: hash,
+                            pinned: false,
+                            createdAt: Date(),
+                            updatedAt: Date()
+                        )
+                        self.pasteQueue.append(item)
+                        self.showEnqueueToast(item)
+                    }
+                } else {
+                    let item = ClipboardItem(
+                        id: -1,
+                        kind: kind,
+                        text: text,
+                        rtfPath: rtfPath,
+                        imagePath: imagePath,
+                        originalImagePath: originalImagePath,
+                        filePaths: filePaths,
+                        hash: hash,
+                        pinned: false,
+                        createdAt: Date(),
+                        updatedAt: Date()
+                    )
+                    self.pasteQueue.append(item)
+                    self.showEnqueueToast(item)
+                }
+            }
+        }
+    }
+
+    private func savePendingImage(data: Data, hash: String, completion: @escaping (String?, String?) -> Void) {
+        let directory = ClipboardStore.defaultImagesDirectory()
+        let originalURL = directory.appendingPathComponent("\(hash).data")
+        let thumbURL = directory.appendingPathComponent("\(hash)_thumb.jpg")
+
+        DispatchQueue.global(qos: .userInitiated).async {
+            do {
+                try data.write(to: originalURL)
+                let thumbData = Self.makeThumbnail(from: data, maxDimension: 512)
+                try thumbData?.write(to: thumbURL)
+                DispatchQueue.main.async {
+                    completion(originalURL.path, thumbURL.path)
+                }
+            } catch {
+                print("保存入队图片失败: \(error)")
+                DispatchQueue.main.async {
+                    completion(nil, nil)
+                }
+            }
+        }
+    }
+
+    private static nonisolated func makeThumbnail(from data: Data, maxDimension: CGFloat) -> Data? {
+        guard let image = NSImage(data: data) else { return nil }
+        let size = image.size
+        guard size.width > 0, size.height > 0 else { return nil }
+        let scale = min(1, maxDimension / max(size.width, size.height))
+        let target = NSSize(width: size.width * scale, height: size.height * scale)
+        guard let rep = NSBitmapImageRep(
+            bitmapDataPlanes: nil,
+            pixelsWide: Int(target.width),
+            pixelsHigh: Int(target.height),
+            bitsPerSample: 8,
+            samplesPerPixel: 4,
+            hasAlpha: true,
+            isPlanar: false,
+            colorSpaceName: .calibratedRGB,
+            bytesPerRow: 0,
+            bitsPerPixel: 0
+        ) else { return nil }
+        rep.size = target
+        NSGraphicsContext.saveGraphicsState()
+        NSGraphicsContext.current = NSGraphicsContext(bitmapImageRep: rep)
+        image.draw(in: NSRect(origin: .zero, size: target))
+        NSGraphicsContext.restoreGraphicsState()
+        return rep.representation(using: .jpeg, properties: [.compressionFactor: 0.8])
+    }
+
+    private func showEnqueueToast(_ item: ClipboardItem) {
+        ToastWindowController.shared.show(
+            title: "已入队（\(pasteQueue.count)）",
+            message: item.previewLine,
+            systemImage: "list.number"
+        )
+    }
+
+    /// 全局快捷键：从队列取出下一个写回剪贴板并粘贴。
+    func dequeueAndPaste() {
+        guard !pasteQueue.isEmpty else {
+            ToastWindowController.shared.show(
+                title: "队列为空",
+                message: "先用入队复制（⌥⌘E）收集内容",
+                systemImage: "list.number"
+            )
+            return
+        }
+        let item = pasteQueue.removeFirst()
+        if let hash = PasteService.shared.writeToPasteboard(item) {
+            ClipboardMonitor.shared.ignore(hash: hash)
+        }
+        if AppSettings.shared.autoPasteEnabled, PasteService.hasAccessibilityPermission {
+            PasteService.injectCommandV()
+        }
+        ToastWindowController.shared.show(
+            title: pasteQueue.isEmpty ? "已全部粘贴" : "已出队（剩 \(pasteQueue.count)）",
+            message: item.previewLine,
+            systemImage: "arrow.up.doc"
+        )
     }
 }

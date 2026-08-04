@@ -6,23 +6,28 @@ import SwiftUI
 struct SettingsView: View {
     @ObservedObject var viewModel: PanelViewModel
 
-    @State private var isRecording = false
-    @State private var hotKeyText: String
+    @State private var hotKeyCode: Int
+    @State private var hotKeyModifiers: UInt
+    @State private var enqueueHotKeyCode: Int
+    @State private var enqueueHotKeyModifiers: UInt
+    @State private var dequeueHotKeyCode: Int
+    @State private var dequeueHotKeyModifiers: UInt
     @State private var historyLimit: Int
     @State private var autoPaste: Bool
     @State private var launchAtLogin: Bool
     @State private var ignoredApps: [String]
     @State private var ignoredAppInput = ""
     @State private var showClearConfirm = false
-    @State private var monitor: Any?
 
     init(viewModel: PanelViewModel) {
         self.viewModel = viewModel
         let settings = AppSettings.shared
-        _hotKeyText = State(initialValue: KeyCodeMapper.displayString(
-            keyCode: settings.hotKeyCode,
-            modifiers: settings.hotKeyModifiers
-        ))
+        _hotKeyCode = State(initialValue: settings.hotKeyCode)
+        _hotKeyModifiers = State(initialValue: settings.hotKeyModifiers)
+        _enqueueHotKeyCode = State(initialValue: settings.enqueueHotKeyCode)
+        _enqueueHotKeyModifiers = State(initialValue: settings.enqueueHotKeyModifiers)
+        _dequeueHotKeyCode = State(initialValue: settings.dequeueHotKeyCode)
+        _dequeueHotKeyModifiers = State(initialValue: settings.dequeueHotKeyModifiers)
         _historyLimit = State(initialValue: settings.historyLimit)
         _autoPaste = State(initialValue: settings.autoPasteEnabled)
         _launchAtLogin = State(initialValue: SMAppService.mainApp.status == .enabled)
@@ -45,13 +50,13 @@ struct SettingsView: View {
                 .padding(14)
             }
         }
-        .frame(width: 380, height: 440)
-        .onDisappear {
-            if let monitor {
-                NSEvent.removeMonitor(monitor)
-                self.monitor = nil
-            }
-        }
+        .frame(width: 860, height: 190)
+        .background(.ultraThinMaterial)
+        .clipShape(RoundedRectangle(cornerRadius: 20, style: .continuous))
+        .overlay(
+            RoundedRectangle(cornerRadius: 20, style: .continuous)
+                .stroke(Color.primary.opacity(0.08), lineWidth: 1)
+        )
     }
 
     // MARK: - 头部
@@ -73,74 +78,52 @@ struct SettingsView: View {
 
             Spacer()
         }
-        .padding(.horizontal, 12)
-        .padding(.vertical, 10)
+        .padding(.horizontal, 14)
+        .padding(.vertical, 8)
     }
 
     // MARK: - 快捷键
 
     private var shortcutSection: some View {
-        VStack(alignment: .leading, spacing: 8) {
+        VStack(alignment: .leading, spacing: 10) {
             Text("全局快捷键")
                 .font(.system(size: 12, weight: .semibold))
                 .foregroundStyle(.secondary)
 
-            Button {
-                startRecording()
-            } label: {
-                HStack {
-                    Image(systemName: isRecording ? "record.circle" : "keyboard")
-                        .foregroundStyle(isRecording ? .red : .secondary)
-                    Text(isRecording ? "按下新的组合键…（Esc 取消）" : hotKeyText)
-                        .font(.system(size: 13, weight: .medium))
-                        .foregroundStyle(.primary)
-                    Spacer()
-                }
-                .padding(.horizontal, 12)
-                .padding(.vertical, 8)
-                .background(Color.primary.opacity(0.05), in: RoundedRectangle(cornerRadius: 10))
-            }
-            .buttonStyle(.plain)
+            ShortcutRecorder(
+                title: "呼出面板",
+                keyCode: $hotKeyCode,
+                modifiers: $hotKeyModifiers,
+                onChange: notifyHotKeyChanged
+            )
+            ShortcutRecorder(
+                title: "入队复制",
+                keyCode: $enqueueHotKeyCode,
+                modifiers: $enqueueHotKeyModifiers,
+                onChange: notifyHotKeyChanged
+            )
+            ShortcutRecorder(
+                title: "出队粘贴",
+                keyCode: $dequeueHotKeyCode,
+                modifiers: $dequeueHotKeyModifiers,
+                onChange: notifyHotKeyChanged
+            )
+
+            Text("入队复制把当前剪贴板内容加入粘贴队列；出队粘贴把队列下一条写回剪贴板并粘贴。")
+                .font(.system(size: 11))
+                .foregroundStyle(.tertiary)
         }
     }
 
-    private func startRecording() {
-        guard !isRecording else { return }
-        isRecording = true
-        monitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { event in
-            guard self.isRecording else { return event }
-
-            // Esc 取消录制
-            if event.keyCode == 53 {
-                self.isRecording = false
-                if let monitor = self.monitor {
-                    NSEvent.removeMonitor(monitor)
-                    self.monitor = nil
-                }
-                return nil
-            }
-
-            let flags = event.modifierFlags.intersection([.command, .option, .control, .shift])
-            guard !flags.isEmpty else { return nil } // 纯字母键无效，继续等待
-            // 排除导航键与编辑键，避免误录（方向键、Home/End/翻页、Esc/Return/Tab）
-            let blockedKeyCodes: Set<Int> = [48, 53, 36, 115, 116, 117, 119, 121, 123, 124, 125, 126]
-            guard !blockedKeyCodes.contains(Int(event.keyCode)) else { return nil }
-
-            let settings = AppSettings.shared
-            settings.hotKeyCode = Int(event.keyCode)
-            settings.hotKeyModifiers = KeyCodeMapper.carbonModifiers(from: flags)
-            hotKeyText = KeyCodeMapper.displayString(
-                keyCode: settings.hotKeyCode,
-                modifiers: settings.hotKeyModifiers
-            )
-            isRecording = false
-            if let monitor = self.monitor {
-                NSEvent.removeMonitor(monitor)
-                self.monitor = nil
-            }
-            NotificationCenter.default.post(name: .clipboardHotKeyChanged, object: nil)
-            return nil
-        }
+    private func notifyHotKeyChanged() {
+        let settings = AppSettings.shared
+        settings.hotKeyCode = hotKeyCode
+        settings.hotKeyModifiers = hotKeyModifiers
+        settings.enqueueHotKeyCode = enqueueHotKeyCode
+        settings.enqueueHotKeyModifiers = enqueueHotKeyModifiers
+        settings.dequeueHotKeyCode = dequeueHotKeyCode
+        settings.dequeueHotKeyModifiers = dequeueHotKeyModifiers
+        NotificationCenter.default.post(name: .clipboardHotKeyChanged, object: nil)
     }
 
     // MARK: - 通用
@@ -321,6 +304,86 @@ struct SettingsView: View {
                 }
                 Button("取消", role: .cancel) {}
             }
+        }
+    }
+}
+
+// MARK: - 快捷键录制行
+
+private struct ShortcutRecorder: View {
+    let title: String
+    @Binding var keyCode: Int
+    @Binding var modifiers: UInt
+    var onChange: () -> Void
+
+    @State private var isRecording = false
+    @State private var monitor: Any?
+
+    private var displayText: String {
+        KeyCodeMapper.displayString(keyCode: keyCode, modifiers: modifiers)
+    }
+
+    var body: some View {
+        HStack {
+            Text(title)
+                .font(.system(size: 12))
+            Spacer()
+            Button {
+                startRecording()
+            } label: {
+                HStack(spacing: 5) {
+                    Image(systemName: isRecording ? "record.circle" : "keyboard")
+                        .font(.system(size: 11))
+                        .foregroundStyle(isRecording ? .red : .secondary)
+                    Text(isRecording ? "按下新组合键…（Esc 取消）" : displayText)
+                        .font(.system(size: 12, weight: .medium))
+                }
+                .padding(.horizontal, 10)
+                .padding(.vertical, 5)
+                .background(Color.primary.opacity(0.05), in: RoundedRectangle(cornerRadius: 8))
+            }
+            .buttonStyle(.plain)
+        }
+        .onDisappear {
+            removeMonitor()
+        }
+    }
+
+    private func startRecording() {
+        guard !isRecording else { return }
+        isRecording = true
+        monitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { event in
+            guard self.isRecording else { return event }
+
+            if event.keyCode == 53 {
+                self.stopRecording()
+                return nil
+            }
+
+            let flags = event.modifierFlags.intersection([.command, .option, .control, .shift])
+            guard !flags.isEmpty else { return nil }
+
+            // 排除导航键与编辑键（方向键、Home/End/翻页、Esc/Return/Tab）
+            let blockedKeyCodes: Set<Int> = [48, 53, 36, 115, 116, 117, 119, 121, 123, 124, 125, 126]
+            guard !blockedKeyCodes.contains(Int(event.keyCode)) else { return nil }
+
+            self.keyCode = Int(event.keyCode)
+            self.modifiers = KeyCodeMapper.carbonModifiers(from: flags)
+            self.stopRecording()
+            self.onChange()
+            return nil
+        }
+    }
+
+    private func stopRecording() {
+        isRecording = false
+        removeMonitor()
+    }
+
+    private func removeMonitor() {
+        if let monitor {
+            NSEvent.removeMonitor(monitor)
+            self.monitor = nil
         }
     }
 }

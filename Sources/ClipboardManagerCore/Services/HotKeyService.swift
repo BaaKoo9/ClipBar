@@ -2,8 +2,8 @@ import Carbon
 import Foundation
 
 // 文件级状态：Carbon 的 C 回调不能捕获类型上下文，因此用全局变量承载。
-private var hotKeyHandler: (() -> Void)?
-private var hotKeyRef: EventHotKeyRef?
+private var hotKeyHandlers: [UInt32: (() -> Void)] = [:]
+private var hotKeyRefs: [UInt32: EventHotKeyRef] = [:]
 private var eventHandlerRef: EventHandlerRef?
 
 // 四字符常量（避免 Carbon 宏在 Swift 中的兼容问题）
@@ -13,13 +13,14 @@ private let hotKeyTypeID: OSType = 0x686B6964 // 'hkid'
 private let hotKeyParamName: UInt32 = 0x6469726F // 'diro'
 private let hotKeySignature: OSType = 0x434D484B // 'CMHK'
 
-private func fireHotKeyHandler() {
+private func fireHotKeyHandler(id: UInt32) {
     DispatchQueue.main.async {
-        hotKeyHandler?()
+        hotKeyHandlers[id]?()
     }
 }
 
 /// 全局快捷键服务（Carbon RegisterEventHotKey，无需辅助功能权限）。
+/// 支持注册多个热键，用 tag 区分。
 public final class HotKeyService {
     public static let shared = HotKeyService()
 
@@ -28,41 +29,54 @@ public final class HotKeyService {
     }
 
     deinit {
-        HotKeyService.unregister()
+        Self.unregisterAll()
         if let eventHandlerRef {
             RemoveEventHandler(eventHandlerRef)
         }
     }
 
-    /// 注册全局快捷键；重复调用会先注销旧的。返回是否注册成功。
-    
-    public func register(keyCode: Int, modifiers: UInt, handler: @escaping () -> Void) -> Bool {
-        Self.unregister()
-        hotKeyHandler = handler
+    /// 注册全局快捷键；同 tag 会先注销旧的。返回是否注册成功。
+    @discardableResult
+    public func register(
+        tag: UInt32,
+        keyCode: Int,
+        modifiers: UInt,
+        handler: @escaping () -> Void
+    ) -> Bool {
+        unregister(tag: tag)
 
-        var hotKeyID = EventHotKeyID(signature: hotKeySignature, id: 1)
+        var hotKeyID = EventHotKeyID(signature: hotKeySignature, id: tag)
+        var ref: EventHotKeyRef?
         let status = RegisterEventHotKey(
             UInt32(keyCode),
             UInt32(modifiers),
             hotKeyID,
             GetApplicationEventTarget(),
             0,
-            &hotKeyRef
+            &ref
         )
-        if status != noErr {
-            print("RegisterEventHotKey 失败: \(status)")
-            hotKeyHandler = nil
+        guard status == noErr else {
+            print("RegisterEventHotKey 失败(tag=\(tag)): \(status)")
             return false
         }
+        hotKeyRefs[tag] = ref
+        hotKeyHandlers[tag] = handler
         return true
     }
 
-    public static func unregister() {
-        if let ref = hotKeyRef {
+    public func unregister(tag: UInt32) {
+        if let ref = hotKeyRefs.removeValue(forKey: tag) {
             UnregisterEventHotKey(ref)
-            hotKeyRef = nil
         }
-        hotKeyHandler = nil
+        hotKeyHandlers.removeValue(forKey: tag)
+    }
+
+    public static func unregisterAll() {
+        for (_, ref) in hotKeyRefs {
+            UnregisterEventHotKey(ref)
+        }
+        hotKeyRefs.removeAll()
+        hotKeyHandlers.removeAll()
     }
 
     private func installEventHandler() {
@@ -84,7 +98,7 @@ public final class HotKeyService {
                 &hotKeyID
             )
             if status == noErr, hotKeyID.signature == hotKeySignature {
-                fireHotKeyHandler()
+                fireHotKeyHandler(id: hotKeyID.id)
             }
             return noErr
         }
