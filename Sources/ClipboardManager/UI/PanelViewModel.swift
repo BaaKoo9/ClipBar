@@ -297,11 +297,7 @@ final class PanelViewModel: ObservableObject {
     }
 
     private func showEnqueueToast(_ item: ClipboardItem) {
-        ToastWindowController.shared.show(
-            title: "已入队（\(pasteQueue.count)）",
-            message: item.previewLine,
-            systemImage: "list.number"
-        )
+        ToastWindowController.shared.showQueue(items: pasteQueue)
     }
 
     /// 全局快捷键：从队列取出下一个写回剪贴板并粘贴。

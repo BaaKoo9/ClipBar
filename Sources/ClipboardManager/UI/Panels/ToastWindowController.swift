@@ -157,7 +157,7 @@ private struct ToastView: View {
                 ForEach(Array(lines.enumerated()), id: \.offset) { index, line in
                     Text("\(index + 1). \(line)")
                         .font(.system(size: 11))
-                        .foregroundStyle(.secondary)
+                        .foregroundStyle(.primary.opacity(0.85))
                         .lineLimit(1)
                 }
             }
@@ -166,7 +166,7 @@ private struct ToastView: View {
         .padding(.horizontal, 14)
         .padding(.vertical, 10)
         .frame(width: 300)
-        .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 16, style: .continuous))
+        .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 16, style: .continuous))
         .overlay(
             RoundedRectangle(cornerRadius: 16, style: .continuous)
                 .stroke(Color.primary.opacity(0.08), lineWidth: 1)
@@ -197,11 +197,11 @@ private struct QueueListView: View {
                         HStack(alignment: .top, spacing: 8) {
                             Text("\(index + 1)")
                                 .font(.system(size: 11, weight: .medium))
-                                .foregroundStyle(.tertiary)
+                                .foregroundStyle(.secondary)
                                 .frame(width: 22, alignment: .trailing)
                             Text(truncated(item.previewLine))
                                 .font(.system(size: 11))
-                                .foregroundStyle(.secondary)
+                                .foregroundStyle(.primary.opacity(0.85))
                                 .lineLimit(1)
                             Spacer(minLength: 0)
                         }
@@ -216,7 +216,7 @@ private struct QueueListView: View {
         }
         .padding(14)
         .frame(width: 300, height: 320, alignment: .topLeading)
-        .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 16, style: .continuous))
+        .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 16, style: .continuous))
         .overlay(
             RoundedRectangle(cornerRadius: 16, style: .continuous)
                 .stroke(Color.primary.opacity(0.08), lineWidth: 1)
