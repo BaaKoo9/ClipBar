@@ -142,13 +142,25 @@ struct SnapshotBarView: View {
                             SnapshotCard(
                                 item: item,
                                 isSelected: item.id == viewModel.selectedID,
-                                highlight: viewModel.searchText.trimmingCharacters(in: .whitespacesAndNewlines)
+                                highlight: viewModel.searchText.trimmingCharacters(in: .whitespacesAndNewlines),
+                                onEnqueue: {
+                                    viewModel.selectedID = item.id
+                                    viewModel.enqueueSelected()
+                                }
                             )
                             .frame(width: Self.cardWidth(for: geo.size.width, count: viewModel.items.count), height: 108)
                             .contentShape(Rectangle())
-                            .onTapGesture {
-                                viewModel.selectedID = item.id
-                            }
+                            .gesture(
+                                SpatialTapGesture()
+                                    .onEnded { _ in
+                                        if NSApp.currentEvent?.modifierFlags.contains(.command) == true {
+                                            viewModel.selectedID = item.id
+                                            viewModel.enqueueSelected()
+                                        } else {
+                                            viewModel.selectedID = item.id
+                                        }
+                                    }
+                            )
                             .contextMenu {
                                 if item.kind == .link, let text = item.text, let url = URL(string: text) {
                                     Button("打开链接") {
@@ -281,7 +293,8 @@ private struct SnapshotCard: View {
     let item: ClipboardItem
     let isSelected: Bool
     let highlight: String
-    @State private var isHovering = false
+    var onEnqueue: () -> Void
+@State private var isHovering = false
 
     var body: some View {
         VStack(alignment: .leading, spacing: 6) {
@@ -301,6 +314,17 @@ private struct SnapshotCard: View {
                     Image(systemName: "pin.fill")
                         .font(.system(size: 9))
                         .foregroundStyle(isSelected ? .white : .orange)
+                }
+                if isHovering && !isSelected {
+                    Button(action: onEnqueue) {
+                        Image(systemName: "list.badge.plus")
+                            .font(.system(size: 10, weight: .semibold))
+                            .foregroundStyle(Color.accentColor)
+                            .frame(width: 20, height: 20)
+                            .background(Color.white.opacity(0.9), in: Circle())
+                    }
+                    .buttonStyle(.plain)
+                    .help("加入粘贴队列")
                 }
             }
 

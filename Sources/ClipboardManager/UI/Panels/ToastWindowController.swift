@@ -13,6 +13,10 @@ final class ToastWindowController {
 
     func show(title: String, message: String, systemImage: String) {
         hideTask?.cancel()
+        if let oldWindow = window {
+            oldWindow.orderOut(nil)
+            oldWindow.alphaValue = 0
+        }
 
         let content = ToastView(title: title, message: message, systemImage: systemImage)
         let hosting = NSHostingController(rootView: content)

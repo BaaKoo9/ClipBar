@@ -261,6 +261,7 @@ final class PanelViewModel: ObservableObject {
         DispatchQueue.main.async { [weak self] in
             guard let self else { return }
             self.pasteQueue.append(item)
+            DebugLog.write("入队[速]: \(item.kind.rawValue) \(item.previewLine.prefix(20)) count=\(self.pasteQueue.count)")
             self.showEnqueueToast(item)
         }
     }
@@ -300,6 +301,7 @@ final class PanelViewModel: ObservableObject {
             return
         }
         let item = pasteQueue.removeFirst()
+        DebugLog.write("出队: \(item.kind.rawValue) \(item.previewLine.prefix(20)) 剩余=\(pasteQueue.count)")
         if let hash = PasteService.shared.writeToPasteboard(item) {
             ClipboardMonitor.shared.ignore(hash: hash)
         }
