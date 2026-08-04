@@ -251,6 +251,10 @@ public final class HotKeyService {
             DebugLog.write("辅助功能权限变化：\(accessibility)")
             if accessibility {
                 installEventTap()
+                if !Self.isListeningAvailable {
+                    Self.requestListeningAccess()
+                    DebugLog.write("辅助功能就绪，自动请求输入监控")
+                }
             }
         }
 

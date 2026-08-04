@@ -26,7 +26,7 @@ struct SnapshotBarView: View {
                 snapshotScroller
             }
 
-            if !viewModel.pasteQueue.isEmpty {
+            if viewModel.pasteQueue.count > 0 {
                 queueBar
             }
 
@@ -226,15 +226,17 @@ struct SnapshotBarView: View {
                 .font(.system(size: 10))
                 .foregroundStyle(.tertiary)
             Spacer()
-            Image(systemName: "xmark.circle.fill")
-                .font(.system(size: 14))
-                .foregroundStyle(.secondary)
-                .frame(width: 26, height: 26)
-                .contentShape(Rectangle())
-                .onTapGesture {
-                    viewModel.clearQueue()
-                }
-                .help("清空队列")
+            Button {
+                viewModel.clearQueue()
+            } label: {
+                Image(systemName: "xmark.circle.fill")
+                    .font(.system(size: 14))
+                    .foregroundStyle(.secondary)
+                    .frame(width: 32, height: 32)
+                    .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+            .help("清空队列")
         }
         .padding(.horizontal, 14)
         .padding(.vertical, 5)

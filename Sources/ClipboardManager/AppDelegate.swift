@@ -37,6 +37,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
             queue: .main
         ) { [weak self] _ in
             HotKeyService.shared.rebuildMonitor()
+            if HotKeyService.isAccessibilityAvailable, !HotKeyService.isListeningAvailable {
+                HotKeyService.requestListeningAccess()
+            }
         }
     }
 

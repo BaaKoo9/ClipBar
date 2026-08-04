@@ -153,6 +153,7 @@ final class PanelViewModel: ObservableObject {
     func clearQueue() {
         DebugLog.write("清空队列")
         pasteQueue = []
+        objectWillChange.send()
     }
 
     /// 入队串行队列：保证快捷键入队顺序与用户操作一致（图片处理是异步的，不串行会乱序）。

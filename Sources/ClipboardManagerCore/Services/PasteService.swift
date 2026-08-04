@@ -46,6 +46,13 @@ public final class PasteService {
         NSWorkspace.shared.frontmostApplication?.processIdentifier
     }
 
+    /// 激活指定进程（注入前确保目标在前台并拿到键盘焦点）。
+    public static func activateApp(pid: pid_t) -> String? {
+        guard let app = NSRunningApplication(processIdentifier: pid) else { return nil }
+        app.activate(options: [.activateIgnoringOtherApps])
+        return app.localizedName
+    }
+
     /// 定向注入 ⌘C 到指定进程。
     public static func injectCommandC(to pid: pid_t) {
         let source = CGEventSource(stateID: .hidSystemState)
