@@ -8,11 +8,7 @@ struct SnapshotBarView: View {
     @FocusState private var searchFocused: Bool
 
     var body: some View {
-        if viewModel.showsSettings {
-            SettingsView(viewModel: viewModel)
-        } else {
-            snapshotContent
-        }
+        snapshotContent
     }
 
     private var snapshotContent: some View {

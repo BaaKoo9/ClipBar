@@ -80,7 +80,7 @@ final class BottomPanelController: NSObject {
 
     private func buildPanel() {
         let hosting = NSHostingController(rootView: SnapshotBarView(viewModel: viewModel))
-        let p = NSPanel(
+        let p = PanelWindow(
             contentRect: NSRect(x: 0, y: 0, width: (NSScreen.main ?? NSScreen.screens[0]).visibleFrame.width - 32, height: 214),
             styleMask: [.borderless],
             backing: .buffered,

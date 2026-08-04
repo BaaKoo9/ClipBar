@@ -6,7 +6,7 @@ import SwiftUI
 final class AppDelegate: NSObject, NSApplicationDelegate {
     private var statusItem: NSStatusItem?
     private var panelController: BottomPanelController?
-    private var settingsWindow: NSWindow?
+    private var settingsWindow: PanelWindow?
 
     private var panelViewModel = PanelViewModel()
 
@@ -36,7 +36,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             object: nil,
             queue: .main
         ) { [weak self] _ in
-            // 用户从系统设置授权返回后，重新挂载全局监听
             HotKeyService.shared.rebuildMonitor()
         }
     }
@@ -49,7 +48,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         }
     }
 
-    // MARK: - 全局快捷键（呼出 / 入队 / 出队）
+    // MARK: - 全局快捷键
 
     private func registerHotKeys() {
         let settings = AppSettings.shared
@@ -137,21 +136,26 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         NSApp.terminate(nil)
     }
 
-    // MARK: - 设置窗口
+    // MARK: - 设置窗口（屏幕居中，无边框圆角玻璃）
 
     private func showSettingsWindow() {
         if settingsWindow == nil {
-            let hosting = NSHostingController(rootView: SettingsView(viewModel: panelViewModel))
-            let window = NSWindow(
-                contentRect: NSRect(x: 0, y: 0, width: 480, height: 560),
-                styleMask: [.titled, .closable],
+            let hosting = NSHostingController(rootView: SettingsView())
+            let window = PanelWindow(
+                contentRect: NSRect(x: 0, y: 0, width: 520, height: 620),
+                styleMask: [.borderless, .fullSizeContentView],
                 backing: .buffered,
                 defer: false
             )
-            window.title = "Clipboard Manager 设置"
             window.contentViewController = hosting
-            window.center()
+            window.isOpaque = false
+            window.backgroundColor = .clear
+            window.hasShadow = true
+            window.isMovableByWindowBackground = true
+            window.level = .floating
+            window.collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary]
             window.isReleasedWhenClosed = false
+            window.center()
             settingsWindow = window
         }
         NSApp.activate(ignoringOtherApps: true)
@@ -163,6 +167,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private func setupPanel() {
         let controller = BottomPanelController(viewModel: panelViewModel)
         panelController = controller
+
+        // 面板内齿轮 → 独立设置窗口
+        panelViewModel.onOpenSettings = { [weak self] in
+            self?.panelController?.hide(animated: false)
+            self?.showSettingsWindow()
+        }
     }
 
     @objc private func togglePanel() {

@@ -4,8 +4,6 @@ import ServiceManagement
 import SwiftUI
 
 struct SettingsView: View {
-    @ObservedObject var viewModel: PanelViewModel
-
     @State private var hotKeyCode: Int
     @State private var hotKeyModifiers: UInt
     @State private var enqueueHotKeyCode: Int
@@ -19,8 +17,7 @@ struct SettingsView: View {
     @State private var ignoredAppInput = ""
     @State private var showClearConfirm = false
 
-    init(viewModel: PanelViewModel) {
-        self.viewModel = viewModel
+    init() {
         let settings = AppSettings.shared
         _hotKeyCode = State(initialValue: settings.hotKeyCode)
         _hotKeyModifiers = State(initialValue: settings.hotKeyModifiers)
@@ -36,6 +33,10 @@ struct SettingsView: View {
 
     var body: some View {
         VStack(spacing: 0) {
+            titleBar
+
+            Divider()
+
             ScrollView {
                 VStack(alignment: .leading, spacing: 18) {
                     shortcutSection
@@ -43,46 +44,53 @@ struct SettingsView: View {
                     privacySection
                     dangerSection
                 }
-                .padding(14)
+                .padding(16)
             }
         }
-.frame(minWidth: 560, maxWidth: .infinity, minHeight: 196, maxHeight: 214)
+        .frame(width: 520, height: 620)
         .background(.ultraThinMaterial)
         .clipShape(RoundedRectangle(cornerRadius: 20, style: .continuous))
         .overlay(
             RoundedRectangle(cornerRadius: 20, style: .continuous)
                 .stroke(Color.primary.opacity(0.08), lineWidth: 1)
         )
+        .shadow(color: Color.black.opacity(0.18), radius: 40, y: 14)
     }
 
-    // MARK: - 头部
+    // MARK: - 标题栏
 
-    private var header: some View {
+    private var titleBar: some View {
         HStack(spacing: 8) {
-            Button {
-                viewModel.showsSettings = false
-            } label: {
-                Image(systemName: "chevron.left")
-                    .font(.system(size: 12, weight: .semibold))
-                    .foregroundStyle(.secondary)
-                    .frame(width: 24, height: 24)
-            }
-            .buttonStyle(.plain)
+            Image(systemName: "doc.on.clipboard")
+                .font(.system(size: 13, weight: .medium))
+                .foregroundStyle(Color.accentColor)
 
-            Text("设置")
+            Text("Clipboard Manager 设置")
                 .font(.system(size: 14, weight: .semibold))
 
             Spacer()
+
+            Button {
+                NSApp.keyWindow?.close()
+            } label: {
+                Image(systemName: "xmark")
+                    .font(.system(size: 11, weight: .semibold))
+                    .foregroundStyle(.secondary)
+                    .frame(width: 24, height: 24)
+                    .background(Color.primary.opacity(0.05), in: Circle())
+            }
+            .buttonStyle(.plain)
+            .help("关闭")
         }
-        .padding(.horizontal, 14)
-        .padding(.vertical, 8)
+        .padding(.horizontal, 16)
+        .padding(.vertical, 12)
     }
 
     // MARK: - 快捷键
 
     private var shortcutSection: some View {
         VStack(alignment: .leading, spacing: 10) {
-            Text("全局快捷键")
+            sectionTitle("全局快捷键")
 
             if !HotKeyService.isListeningAvailable {
                 HStack(spacing: 6) {
@@ -125,12 +133,6 @@ struct SettingsView: View {
         }
     }
 
-    private func openListenEventSettings() {
-        if let url = URL(string: "x-apple.systempreferences:com.apple.preference.security?Privacy_ListenEvent") {
-            NSWorkspace.shared.open(url)
-        }
-    }
-
     private func notifyHotKeyChanged() {
         let settings = AppSettings.shared
         settings.hotKeyCode = hotKeyCode
@@ -142,13 +144,17 @@ struct SettingsView: View {
         NotificationCenter.default.post(name: .clipboardHotKeyChanged, object: nil)
     }
 
+    private func openListenEventSettings() {
+        if let url = URL(string: "x-apple.systempreferences:com.apple.preference.security?Privacy_ListenEvent") {
+            NSWorkspace.shared.open(url)
+        }
+    }
+
     // MARK: - 通用
 
     private var generalSection: some View {
         VStack(alignment: .leading, spacing: 10) {
-            Text("通用")
-                .font(.system(size: 12, weight: .semibold))
-                .foregroundStyle(.secondary)
+            sectionTitle("通用")
 
             Toggle("开机时自动启动", isOn: $launchAtLogin)
                 .onChange(of: launchAtLogin) { _, enabled in
@@ -220,9 +226,7 @@ struct SettingsView: View {
 
     private var privacySection: some View {
         VStack(alignment: .leading, spacing: 8) {
-            Text("隐私")
-                .font(.system(size: 12, weight: .semibold))
-                .foregroundStyle(.secondary)
+            sectionTitle("隐私")
 
             HStack(spacing: 8) {
                 TextField("App Bundle ID，如 com.apple.PasswordManager", text: $ignoredAppInput)
@@ -297,13 +301,11 @@ struct SettingsView: View {
         AppSettings.shared.ignoredApps = ignoredApps
     }
 
-    // MARK: - 危险操作
+    // MARK: - 数据
 
     private var dangerSection: some View {
         VStack(alignment: .leading, spacing: 8) {
-            Text("数据")
-                .font(.system(size: 12, weight: .semibold))
-                .foregroundStyle(.secondary)
+            sectionTitle("数据")
 
             Button(role: .destructive) {
                 showClearConfirm = true
@@ -317,11 +319,17 @@ struct SettingsView: View {
                 titleVisibility: .visible
             ) {
                 Button("清空全部历史", role: .destructive) {
-                    viewModel.clearAllHistory()
+                    ClipboardStore.shared.clear()
                 }
                 Button("取消", role: .cancel) {}
             }
         }
+    }
+
+    private func sectionTitle(_ title: String) -> some View {
+        Text(title)
+            .font(.system(size: 12, weight: .semibold))
+            .foregroundStyle(.secondary)
     }
 }
 

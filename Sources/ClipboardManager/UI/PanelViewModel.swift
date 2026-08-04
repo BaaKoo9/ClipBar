@@ -8,13 +8,15 @@ final class PanelViewModel: ObservableObject {
     @Published var searchText = ""
     @Published var items: [ClipboardItem] = []
     @Published var selectedID: Int64?
-    @Published var showsSettings = false
      var pasteQueue: [ClipboardItem] = []
      var filterKind: ClipboardItem.Kind?
      var scrollRequestID: Int64?
 
     /// AppDelegate 注入：请求关闭面板（Esc、粘贴完成后等）。
     var onRequestClose: (() -> Void)?
+
+    /// AppDelegate 注入：请求打开独立设置窗口。
+    var onOpenSettings: (() -> Void)?
 
     private var loaded = false
 
@@ -118,7 +120,7 @@ final class PanelViewModel: ObservableObject {
     }
 
     func openSettings() {
-        showsSettings = true
+        onOpenSettings?()
     }
 
     // MARK: - 粘贴队列
