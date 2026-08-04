@@ -126,8 +126,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         let settingsItem = NSMenuItem(title: "设置…", action: #selector(openSettings(_:)), keyEquivalent: "")
         settingsItem.target = self
 
+        let aboutItem = NSMenuItem(title: "关于 Clipboard Manager…", action: #selector(openAbout(_:)), keyEquivalent: "")
+        aboutItem.target = self
+
         menu.addItem(showItem)
         menu.addItem(settingsItem)
+        menu.addItem(aboutItem)
         menu.addItem(.separator())
         menu.addItem(NSMenuItem(title: "退出 Clipboard Manager", action: #selector(quitApp(_:)), keyEquivalent: "q"))
 
@@ -144,6 +148,37 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
 
     @objc private func quitApp(_ sender: Any?) {
         NSApp.terminate(nil)
+    }
+
+    private var aboutWindow: PanelWindow?
+
+    @objc private func openAbout(_ sender: Any?) {
+        showAboutWindow()
+    }
+
+    private func showAboutWindow() {
+        if aboutWindow == nil {
+            let hosting = NSHostingController(rootView: AboutView())
+            let window = PanelWindow(
+                contentRect: NSRect(x: 0, y: 0, width: 420, height: 480),
+                styleMask: [.borderless, .fullSizeContentView],
+                backing: .buffered,
+                defer: false
+            )
+            window.contentViewController = hosting
+            window.isOpaque = false
+            window.backgroundColor = .clear
+            window.hasShadow = true
+            window.isMovableByWindowBackground = true
+            window.level = .normal
+            window.collectionBehavior = [.moveToActiveSpace]
+            window.isReleasedWhenClosed = false
+            window.delegate = self
+            window.center()
+            aboutWindow = window
+        }
+        NSApp.activate(ignoringOtherApps: true)
+        aboutWindow?.makeKeyAndOrderFront(nil)
     }
 
     // MARK: - 设置窗口（屏幕居中，无边框圆角玻璃）

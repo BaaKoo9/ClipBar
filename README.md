@@ -1,50 +1,77 @@
 # Clipboard Manager
 
-一个**本地优先、高性能、简约**的 macOS 剪贴板管理器。键盘流设计：呼出面板 → 方向键选择 → 回车粘贴，全程不碰鼠标。
+[中文文档](README_CN.md)
 
-## 功能
+A **local-first, high-performance, minimal** macOS clipboard manager. Keyboard-first design: summon the panel, pick with arrow keys, paste with Enter — no mouse required.
 
-- 菜单栏常驻，全局快捷键呼出面板（默认 `⌥⌘V`，可在设置中自定义录制）
-- 自动记录：文本、链接、图片、文件引用
-- 历史列表：类型图标、内容预览、相对时间、置顶标记
-- 即时搜索（输入即过滤）
-- 置顶/收藏（不受容量清理影响）
-- 去重：相同内容自动刷新时间，不重复堆积
-- **顺序粘贴**：`⌘+回车` 收集多条，关闭面板后按序自动粘贴
-- 设置：开机自启、历史上限、自动粘贴（辅助功能权限）、忽略指定 App 的复制、清空历史
-- **隐私：零网络权限，所有数据仅存本机**（SQLite + 图片缓存）
+## Features
 
-## 构建
+- Menu bar resident, global hotkeys to summon the panel (default `⌥⌘V`, customizable by recording)
+- Auto-captures: text, links, images, files, and rich text (RTF preserved)
+- **Snapshot bar**: horizontal cards at the bottom of the screen, adaptive width, category filters (All / Text / Link / Image / File)
+- Instant search with keyword highlighting
+- Pin/favorite items (protected from history cleanup)
+- Deduplication: identical content refreshes timestamp instead of stacking
+- **Sequential paste**: enqueue with `⌥⌘E` (simulates ⌘C + auto-queue), dequeue with `⌥⌘D` (paste one by one), with a persistent side queue list
+- Queue side panel: shows all queued items, scrollable, follows the screen where you started copying
+- Settings: launch at login, history limit (100–3000), auto-paste, ignore specific apps, clear history
+- **Privacy: zero network permissions, all data stays local** (SQLite + cached images/RTF)
+- About window with version info and project link
 
-需要 macOS 14+，仅依赖 Xcode CommandLineTools（无需完整 Xcode）：
+## Installation
+
+Download the latest DMG from [Releases](https://github.com/BaaKoo9/clipboard-manager/releases), drag to Applications.
+
+First launch will ask for **Accessibility** permission (global hotkeys & auto-paste). After granting, everything works; permissions persist across reinstalls thanks to stable code signing.
+
+## Usage
+
+| Action | Shortcut |
+|---|---|
+| Summon / dismiss panel | `⌥⌘V` |
+| Enqueue copy (copy selection + queue) | `⌥⌘E` |
+| Dequeue paste | `⌥⌘D` |
+| In panel: select | `←` `→` |
+| In panel: paste selected | `Enter` or single click |
+| In panel: enqueue | `⌘+Click` or hover `⊕` button |
+
+All shortcuts are customizable in Settings.
+
+## Build
+
+Requires macOS 14+ and only Xcode CommandLineTools (no full Xcode needed):
 
 ```bash
-./scripts/build-app.sh          # 生成 dist/Clipboard Manager.app
-./scripts/make-dmg.sh           # 生成 dist/Clipboard-Manager.dmg
-./scripts/run-tests.sh          # 运行核心单元测试（存储/去重/搜索/回填/热键/性能）
+./scripts/build-app.sh          # builds dist/Clipboard Manager.app
+./scripts/make-dmg.sh           # builds dist/Clipboard-Manager.dmg
+./scripts/run-tests.sh          # runs core unit tests
 ```
 
-## 测试
+## Tests
 
 ```bash
 swift run CoreTests
 ```
 
-覆盖：插入/读取、去重、搜索、置顶保护、清空、文本/图片/文件回填、全局热键注册、10000 条性能压测（全量读取 <10ms、搜索 <5ms）。
+Covers: insert/fetch, dedup, search, pin protection, clear, text/image/file/RTF paste-back, hotkey registration, legacy DB migration, 10k-item performance (fetch <10ms, search <5ms).
 
-## 技术栈
+## Tech Stack
 
-- Swift + SwiftUI + AppKit（无第三方依赖）
-- SQLite（系统库）：串行队列写入、延迟容量清理
-- Carbon RegisterEventHotKey：全局快捷键（无需辅助功能权限）
-- 图片：PNG 规范化存储 + JPEG 缩略图预览
+- Swift + SwiftUI + AppKit, zero third-party dependencies
+- SQLite (system library): serialized writes, lazy capacity cleanup
+- CGEventTap for global hotkeys (Accessibility permission)
+- PNG canonical storage + JPEG thumbnails; RTF preserved for rich text
 
-## 路线图
+## Roadmap
 
-- [x] 剪贴板监听与本地存储
-- [x] 历史面板、搜索、回填
-- [x] 可自定义全局快捷键
-- [x] 顺序粘贴、置顶、忽略 App、开机自启
-- [x] App 图标、DMG 打包
-- [ ] 深色模式细节打磨、更多类型识别（颜色、代码块）
-- [ ] 多设备同步（iCloud 私有数据库）
+- [x] Clipboard monitoring & local storage
+- [x] Snapshot bar, search, paste-back
+- [x] Customizable global hotkeys (summon / enqueue / dequeue)
+- [x] Sequential paste, pin, ignore apps, launch at login
+- [x] App icon, DMG packaging, about window
+- [x] Queue side panel with screen following
+- [ ] Cloud sync (iCloud private database), more type detection (colors, code blocks)
+
+## License
+
+Source-available for personal use. All rights reserved.
