@@ -41,6 +41,22 @@ public final class PasteService {
         }
     }
 
+    /// 当前前台 App 的进程 ID（用于定向注入）。
+    public static func frontmostPID() -> pid_t? {
+        NSWorkspace.shared.frontmostApplication?.processIdentifier
+    }
+
+    /// 定向注入 ⌘C 到指定进程。
+    public static func injectCommandC(to pid: pid_t) {
+        let source = CGEventSource(stateID: .hidSystemState)
+        let down = CGEvent(keyboardEventSource: source, virtualKey: 8, keyDown: true)
+        down?.flags = .maskCommand
+        down?.postToPid(pid)
+        let up = CGEvent(keyboardEventSource: source, virtualKey: 8, keyDown: false)
+        up?.flags = .maskCommand
+        up?.postToPid(pid)
+    }
+
     /// 模拟 ⌘C：把当前选中内容复制到剪贴板（入队复制前置）。
     public static func injectCommandC() {
         let source = CGEventSource(stateID: .hidSystemState)
@@ -50,6 +66,17 @@ public final class PasteService {
         let up = CGEvent(keyboardEventSource: source, virtualKey: 8, keyDown: false)
         up?.flags = .maskCommand
         up?.post(tap: .cghidEventTap)
+    }
+
+    /// 定向注入 ⌘V 到指定进程（面板关闭后最可靠）。
+    public static func injectCommandV(to pid: pid_t) {
+        let source = CGEventSource(stateID: .hidSystemState)
+        let down = CGEvent(keyboardEventSource: source, virtualKey: 9, keyDown: true)
+        down?.flags = .maskCommand
+        down?.postToPid(pid)
+        let up = CGEvent(keyboardEventSource: source, virtualKey: 9, keyDown: false)
+        up?.flags = .maskCommand
+        up?.postToPid(pid)
     }
 
     /// 模拟 ⌘V 注入粘贴（需要辅助功能权限）。

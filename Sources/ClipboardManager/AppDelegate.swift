@@ -3,7 +3,7 @@ import ClipboardManagerCore
 import SwiftUI
 
 @MainActor
-final class AppDelegate: NSObject, NSApplicationDelegate {
+final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
     private var statusItem: NSStatusItem?
     private var panelController: BottomPanelController?
     private var settingsWindow: PanelWindow?

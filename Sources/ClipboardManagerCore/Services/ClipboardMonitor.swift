@@ -55,24 +55,8 @@ public final class ClipboardMonitor {
     }
 
     private func process(_ items: [NSPasteboardItem]) {
-        // 1. 文件引用
-        if let urls = pasteboard.readObjects(
-            forClasses: [NSURL.self],
-            options: [.urlReadingFileURLsOnly: true]
-        ) as? [URL], !urls.isEmpty {
-            let paths = urls.map(\.path)
-            let hash = Hashing.sha256Hex(filePaths: paths)
-            guard hash != lastWrittenHash else { return }
-            ClipboardStore.shared.upsert(NewClipboardItem(
-                kind: .file,
-                text: paths.joined(separator: "\n"),
-                filePaths: paths,
-                hash: hash
-            ))
-            return
-        }
-
-        // 2. 图片：先规范化为 PNG，保证 hash、存储与回填一致
+        // 1. 图片优先：截图工具（如 PixPin）可能同时提供文件引用和图片数据，
+        //    有图片数据时一律按图片处理
         if let imageData = pasteboard.data(forType: .png) ?? pasteboard.data(forType: .tiff),
            let image = NSImage(data: imageData) {
             let canonicalData = image.pngData() ?? imageData
@@ -86,6 +70,23 @@ public final class ClipboardMonitor {
                     hash: hash
                 ))
             }
+            return
+        }
+
+        // 2. 文件引用
+        if let urls = pasteboard.readObjects(
+            forClasses: [NSURL.self],
+            options: [.urlReadingFileURLsOnly: true]
+        ) as? [URL], !urls.isEmpty {
+            let paths = urls.map(\.path)
+            let hash = Hashing.sha256Hex(filePaths: paths)
+            guard hash != lastWrittenHash else { return }
+            ClipboardStore.shared.upsert(NewClipboardItem(
+                kind: .file,
+                text: paths.joined(separator: "\n"),
+                filePaths: paths,
+                hash: hash
+            ))
             return
         }
 

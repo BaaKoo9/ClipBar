@@ -153,11 +153,15 @@ struct SnapshotBarView: View {
                             .gesture(
                                 SpatialTapGesture()
                                     .onEnded { _ in
-                                        if NSApp.currentEvent?.modifierFlags.contains(.command) == true {
+                                        let isCommand = (NSApp.currentEvent?.modifierFlags.contains(.command) == true)
+                                            || NSEvent.modifierFlags.contains(.command)
+                                        if isCommand {
                                             viewModel.selectedID = item.id
                                             viewModel.enqueueSelected()
                                         } else {
+                                            // 单击直接粘贴（CleanClip 风格）
                                             viewModel.selectedID = item.id
+                                            viewModel.pasteSelected()
                                         }
                                     }
                             )
@@ -226,8 +230,10 @@ struct SnapshotBarView: View {
                 viewModel.clearQueue()
             } label: {
                 Image(systemName: "xmark.circle.fill")
-                    .font(.system(size: 12))
-                    .foregroundStyle(.tertiary)
+                    .font(.system(size: 14))
+                    .foregroundStyle(.secondary)
+                    .frame(width: 26, height: 26)
+                    .contentShape(Rectangle())
             }
             .buttonStyle(.plain)
             .help("清空队列")

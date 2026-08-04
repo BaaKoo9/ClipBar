@@ -92,16 +92,16 @@ struct SettingsView: View {
         VStack(alignment: .leading, spacing: 10) {
             sectionTitle("全局快捷键")
 
-            if !HotKeyService.isListeningAvailable {
+            if !HotKeyService.isAccessibilityAvailable {
                 HStack(spacing: 6) {
                     Image(systemName: "exclamationmark.triangle")
                         .font(.system(size: 10))
                         .foregroundStyle(.orange)
-                    Text("全局快捷键需要「输入监控」权限")
+                    Text("全局快捷键需要「辅助功能」权限")
                         .font(.system(size: 11))
                         .foregroundStyle(.secondary)
                     Button("去开启") {
-                        openListenEventSettings()
+                        openAccessibilityPermissionSettings()
                     }
                     .font(.system(size: 11))
                     .buttonStyle(.link)
@@ -144,8 +144,8 @@ struct SettingsView: View {
         NotificationCenter.default.post(name: .clipboardHotKeyChanged, object: nil)
     }
 
-    private func openListenEventSettings() {
-        if let url = URL(string: "x-apple.systempreferences:com.apple.preference.security?Privacy_ListenEvent") {
+    private func openAccessibilityPermissionSettings() {
+        if let url = URL(string: "x-apple.systempreferences:com.apple.preference.security?Privacy_Accessibility") {
             NSWorkspace.shared.open(url)
         }
     }

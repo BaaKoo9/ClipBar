@@ -99,12 +99,13 @@ final class PanelViewModel: ObservableObject {
         }
         onRequestClose?()
         if AppSettings.shared.autoPasteEnabled, PasteService.hasAccessibilityPermission {
-            // 等面板完全关闭、焦点回到目标 App 后再注入 ⌘V
             DispatchQueue.main.asyncAfter(deadline: .now() + 0.35) {
                 if NSApp.isActive {
                     NSApp.deactivate()
                 }
-                PasteService.injectCommandV()
+                if let pid = PasteService.frontmostPID() {
+                    PasteService.injectCommandV(to: pid)
+                }
             }
         }
     }
@@ -146,6 +147,7 @@ final class PanelViewModel: ObservableObject {
     }
 
     func clearQueue() {
+        DebugLog.write("清空队列")
         pasteQueue = []
     }
 
@@ -162,7 +164,11 @@ final class PanelViewModel: ObservableObject {
             return
         }
         let before = NSPasteboard.general.changeCount
-        PasteService.injectCommandC()
+        if let pid = PasteService.frontmostPID() {
+            PasteService.injectCommandC(to: pid)
+        } else {
+            PasteService.injectCommandC()
+        }
         waitForPasteboardChange(before: before, retries: 10)
     }
 
@@ -186,26 +192,7 @@ final class PanelViewModel: ObservableObject {
     private func performEnqueueFromClipboard() {
         let pasteboard = NSPasteboard.general
 
-        // 文本：直接入队
-        if let text = pasteboard.string(forType: .string), !text.isEmpty {
-            let item = ClipboardItem(
-                id: -1,
-                kind: text.hasPrefix("http://") || text.hasPrefix("https://") ? .link : .text,
-                text: text,
-                rtfPath: nil,
-                imagePath: nil,
-                originalImagePath: nil,
-                filePaths: [],
-                hash: Hashing.sha256Hex(text),
-                pinned: false,
-                createdAt: Date(),
-                updatedAt: Date()
-            )
-            enqueueAppend(item)
-            return
-        }
-
-        // 图片：优先复用历史缓存，否则在本队列落盘，保证入队顺序
+        // 图片优先（截图工具可能同时提供图片数据和文件引用）
         if let imageData = pasteboard.data(forType: .png) ?? pasteboard.data(forType: .tiff) {
             let hash = Hashing.sha256Hex(imageData)
             if let existing = ClipboardStore.shared.itemSync(hash: hash) {
@@ -228,6 +215,25 @@ final class PanelViewModel: ObservableObject {
                 )
                 enqueueAppend(item)
             }
+            return
+        }
+
+        // 文本
+        if let text = pasteboard.string(forType: .string), !text.isEmpty {
+            let item = ClipboardItem(
+                id: -1,
+                kind: text.hasPrefix("http://") || text.hasPrefix("https://") ? .link : .text,
+                text: text,
+                rtfPath: nil,
+                imagePath: nil,
+                originalImagePath: nil,
+                filePaths: [],
+                hash: Hashing.sha256Hex(text),
+                pinned: false,
+                createdAt: Date(),
+                updatedAt: Date()
+            )
+            enqueueAppend(item)
             return
         }
 
@@ -263,6 +269,16 @@ final class PanelViewModel: ObservableObject {
         }
     }
 
+    private func enqueueAppend(_ item: ClipboardItem) {
+        DispatchQueue.main.async { [weak self] in
+            guard let self else { return }
+            self.pasteQueue.append(item)
+            DebugLog.write("入队[速]: \(item.kind.rawValue) \(item.previewLine.prefix(20)) count=\(self.pasteQueue.count)")
+            self.showEnqueueToast(item)
+        }
+    }
+
+    /// 在入队队列中同步保存图片（不阻塞主线程）。
     private static nonisolated func makeThumbnail(from data: Data, maxDimension: CGFloat) -> Data? {
         guard let image = NSImage(data: data) else { return nil }
         let size = image.size
@@ -289,16 +305,6 @@ final class PanelViewModel: ObservableObject {
         return rep.representation(using: .jpeg, properties: [.compressionFactor: 0.8])
     }
 
-    private func enqueueAppend(_ item: ClipboardItem) {
-        DispatchQueue.main.async { [weak self] in
-            guard let self else { return }
-            self.pasteQueue.append(item)
-            DebugLog.write("入队[速]: \(item.kind.rawValue) \(item.previewLine.prefix(20)) count=\(self.pasteQueue.count)")
-            self.showEnqueueToast(item)
-        }
-    }
-
-    /// 在入队队列中同步保存图片（不阻塞主线程）。
     private func saveImageSync(data: Data, hash: String) -> (String, String)? {
         let directory = ClipboardStore.defaultImagesDirectory()
         let originalURL = directory.appendingPathComponent("\(hash).data")
@@ -342,7 +348,9 @@ final class PanelViewModel: ObservableObject {
                 if NSApp.isActive {
                     NSApp.deactivate()
                 }
-                PasteService.injectCommandV()
+                if let pid = PasteService.frontmostPID() {
+                    PasteService.injectCommandV(to: pid)
+                }
             }
         }
         ToastWindowController.shared.show(
