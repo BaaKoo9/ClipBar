@@ -19,4 +19,9 @@ hdiutil create -volname "Clipboard Manager" \
 if [ -d "$STAGE" ]; then
     find "$STAGE" -depth -delete
 fi
+
+# 清理构建产物，dist 只保留 DMG
+if [ -d "$ROOT/dist/$APP_NAME.app" ]; then
+    find "$ROOT/dist/$APP_NAME.app" -depth -delete
+fi
 echo "DMG 已生成: $DMG_PATH"
