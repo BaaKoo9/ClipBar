@@ -7,10 +7,11 @@ import SwiftUI
 final class ToastWindowController {
     static let shared = ToastWindowController()
 
+    /// 队列窗口 X 按钮触发的额外动作（清空队列由外部注入）。
+    var onQueueClose: (() -> Void)?
+
     private var window: NSPanel?
     private var hideTask: DispatchWorkItem?
-
-    var onQueueClose: (() -> Void)?
 
     private var queueWindow: NSPanel?
     private var queueHosting: NSHostingController<QueueListView>?
@@ -77,31 +78,33 @@ final class ToastWindowController {
 
     // MARK: - 队列常驻窗口
 
-    /// 显示/更新队列列表（入队几条显示几条，最多 10 行，超出滚动）。
     func showQueue(items: [ClipboardItem]) {
         DebugLog.write("队列窗口：显示/更新 \(items.count) 条")
         queueHideTask?.cancel()
 
-        // 先清理可能残留的旧窗口，再重建
-        if let oldQueueWindow = queueWindow, oldQueueWindow.isVisible {
-            oldQueueWindow.orderOut(nil)
+        if let queueWindow, let queueHosting {
+            // 窗口已存在：只更新内容，不重建、不关闭，避免闪烁
+            queueHosting.rootView = QueueListView(items: items, onClose: { [weak self] in
+                self?.hideQueue()
+                self?.onQueueClose?()
+            })
+            if !queueWindow.isVisible {
+                queueWindow.alphaValue = 0
+                queueWindow.orderFrontRegardless()
+                NSAnimationContext.runAnimationGroup { context in
+                    context.duration = 0.15
+                    queueWindow.animator().alphaValue = 1
+                }
+            }
+            return
         }
 
-        // 每次重建内容并替换，确保实时刷新
         let hosting = NSHostingController(rootView: QueueListView(items: items, onClose: { [weak self] in
             self?.hideQueue()
             self?.onQueueClose?()
         }))
-        if let queueWindow {
-            queueWindow.contentViewController = hosting
-            queueWindow.makeKeyAndOrderFront(nil)
-            queueWindow.alphaValue = 1
-            queueHosting = hosting
-            return
-        }
-
         let panel = NSPanel(
-            contentRect: NSRect(x: 0, y: 0, width: 300, height: 320),
+            contentRect: NSRect(x: 0, y: 0, width: 340, height: 360),
             styleMask: [.borderless, .nonactivatingPanel],
             backing: .buffered,
             defer: false
@@ -116,7 +119,7 @@ final class ToastWindowController {
 
         let screen = ScreenHelper.activeScreen
         let visible = screen.visibleFrame
-        panel.setFrameOrigin(NSPoint(x: visible.maxX - 300 - 20, y: visible.maxY - 340))
+        panel.setFrameOrigin(NSPoint(x: visible.maxX - 340 - 20, y: visible.maxY - 380))
 
         queueWindow = panel
         queueHosting = hosting
@@ -128,12 +131,13 @@ final class ToastWindowController {
         }
     }
 
-    /// 队列清空/出队完成后隐藏队列窗口。
     func hideQueue() {
         DebugLog.write("队列窗口：隐藏")
         queueHideTask?.cancel()
         guard let queueWindow, queueWindow.isVisible else {
             queueWindow?.orderOut(nil)
+            self.queueWindow = nil
+            self.queueHosting = nil
             return
         }
         NSAnimationContext.runAnimationGroup({ context in
@@ -195,23 +199,20 @@ private struct QueueListView: View {
         VStack(alignment: .leading, spacing: 8) {
             HStack(spacing: 6) {
                 Image(systemName: "list.number")
-                    .font(.system(size: 13, weight: .semibold))
+                    .font(.system(size: 14, weight: .semibold))
                     .foregroundStyle(Color.accentColor)
                 Text("待粘贴队列（\(items.count)）")
-                Text("待粘贴队列（\(items.count)）")
-                    .font(.system(size: 12, weight: .semibold))
+                    .font(.system(size: 13.5, weight: .semibold))
                 Spacer()
                 Button(action: onClose) {
                     Image(systemName: "xmark")
-                        .font(.system(size: 10, weight: .semibold))
+                        .font(.system(size: 11, weight: .semibold))
                         .foregroundStyle(.secondary)
-                        .frame(width: 22, height: 22)
+                        .frame(width: 24, height: 24)
                         .background(Color.primary.opacity(0.06), in: Circle())
                 }
                 .buttonStyle(.plain)
-                .help("关闭队列提示")
-                    .font(.system(size: 12, weight: .semibold))
-                Spacer()
+                .help("关闭提示并清空队列")
             }
 
             ScrollView {
@@ -219,26 +220,26 @@ private struct QueueListView: View {
                     ForEach(Array(items.enumerated()), id: \.offset) { index, item in
                         HStack(alignment: .top, spacing: 8) {
                             Text("\(index + 1)")
-                                .font(.system(size: 11, weight: .medium))
+                                .font(.system(size: 12.5, weight: .medium))
                                 .foregroundStyle(.secondary)
-                                .frame(width: 22, alignment: .trailing)
+                                .frame(width: 24, alignment: .trailing)
                             Text(truncated(item.previewLine))
-                                .font(.system(size: 11))
+                                .font(.system(size: 12.5))
                                 .foregroundStyle(.primary.opacity(0.85))
                                 .lineLimit(1)
                             Spacer(minLength: 0)
                         }
-                        .padding(.vertical, 4)
+                        .padding(.vertical, 5)
                         if index < items.count - 1 {
                             Divider()
                         }
                     }
                 }
             }
-            .frame(maxHeight: 220)
+            .frame(maxHeight: 260)
         }
         .padding(14)
-        .frame(width: 300, height: 320, alignment: .topLeading)
+        .frame(width: 340, height: 360, alignment: .topLeading)
         .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 16, style: .continuous))
         .overlay(
             RoundedRectangle(cornerRadius: 16, style: .continuous)
