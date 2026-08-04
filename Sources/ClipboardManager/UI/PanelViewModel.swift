@@ -168,6 +168,7 @@ final class PanelViewModel: ObservableObject {
         DebugLog.write("清空队列")
         pasteQueue = []
         objectWillChange.send()
+        ToastWindowController.shared.hideQueue()
     }
 
     /// 全局快捷键：模拟普通复制（⌘C）后再把新剪贴板内容加入队列。

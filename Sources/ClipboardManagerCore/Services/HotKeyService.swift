@@ -1,19 +1,6 @@
 import AppKit
-import Carbon
 import CoreGraphics
 import Foundation
-
-// MARK: - Carbon 文件级状态（C 回调不能捕获类型上下文）
-
-private var carbonHotKeyHandlers: [UInt32: (() -> Void)] = [:]
-private var carbonHotKeyRefs: [UInt32: EventHotKeyRef] = [:]
-private var carbonEventHandlerRef: EventHandlerRef?
-
-private let hotKeyEventClass: OSType = 0x6B657962 // 'keyb'
-private let hotKeyPressedKind: UInt32 = 1
-private let hotKeyTypeID: OSType = 0x686B6964 // 'hkid'
-private let hotKeyParamName: UInt32 = 0x6469726F // 'diro'
-private let hotKeySignature: OSType = 0x434D484B // 'CMHK'
 
 // MARK: - CGEventTap 文件级状态
 
@@ -25,7 +12,7 @@ private let tapCallback: CGEventTapCallBack = { _, type, event, _ in
         return Unmanaged.passUnretained(event)
     }
     let keyCode = Int(event.getIntegerValueField(.keyboardEventKeycode))
-    // 过滤按住不放的自动重复，避免重复入队/出队
+    // 过滤按住不放的自动重复
     if event.getIntegerValueField(.keyboardEventAutorepeat) != 0 {
         return Unmanaged.passUnretained(event)
     }
@@ -39,7 +26,7 @@ private let tapCallback: CGEventTapCallBack = { _, type, event, _ in
 
 // MARK: - 服务
 
-/// 全局快捷键服务：CGEventTap（辅助功能权限，最可靠）+ Carbon + NSEvent 监听，三通道去重。
+/// 全局快捷键服务：CGEventTap（辅助功能权限）为主，NSEvent 全局监听（输入监控权限）为辅。
 public final class HotKeyService {
     public static let shared = HotKeyService()
 
@@ -60,7 +47,7 @@ public final class HotKeyService {
     private var lastFireDate = Date.distantPast
 
     private init() {
-        installCarbonEventHandler()
+        lastAccessibilityAvailable = Self.isAccessibilityAvailable
         installEventTap()
         startPermissionWatcher()
     }
@@ -98,26 +85,6 @@ public final class HotKeyService {
         lock.lock()
         registrations[tag] = Registration(keyCode: keyCode, modifiers: modifiers, handler: handler)
         lock.unlock()
-
-        // Carbon 通道
-        unregisterCarbon(tag: tag)
-        var hotKeyID = EventHotKeyID(signature: hotKeySignature, id: tag)
-        var ref: EventHotKeyRef?
-        let status = RegisterEventHotKey(
-            UInt32(keyCode),
-            UInt32(modifiers),
-            hotKeyID,
-            GetApplicationEventTarget(),
-            0,
-            &ref
-        )
-        if status == noErr {
-            carbonHotKeyRefs[tag] = ref
-            carbonHotKeyHandlers[tag] = handler
-        } else {
-            DebugLog.write("Carbon 注册失败 tag=\(tag) status=\(status)")
-        }
-
         rebuildMonitor()
         return true
     }
@@ -126,7 +93,6 @@ public final class HotKeyService {
         lock.lock()
         registrations.removeValue(forKey: tag)
         lock.unlock()
-        unregisterCarbon(tag: tag)
     }
 
     public static func unregisterAll() {
@@ -137,16 +103,6 @@ public final class HotKeyService {
         lock.lock()
         registrations.removeAll()
         lock.unlock()
-        for tag in Array(carbonHotKeyRefs.keys) {
-            unregisterCarbon(tag: tag)
-        }
-    }
-
-    private func unregisterCarbon(tag: UInt32) {
-        if let ref = carbonHotKeyRefs.removeValue(forKey: tag) {
-            UnregisterEventHotKey(ref)
-        }
-        carbonHotKeyHandlers.removeValue(forKey: tag)
     }
 
     // MARK: - 匹配
@@ -166,8 +122,9 @@ public final class HotKeyService {
     func fire(tag: UInt32) {
         let now = Date()
         lock.lock()
-        if tag == lastFireTag, now.timeIntervalSince(lastFireDate) < 0.15 {
+        if tag == lastFireTag, now.timeIntervalSince(lastFireDate) < 0.3 {
             lock.unlock()
+            DebugLog.write("热键去重 tag=\(tag)")
             return
         }
         lastFireTag = tag
@@ -182,7 +139,7 @@ public final class HotKeyService {
         }
     }
 
-    // MARK: - NSEvent 监听（输入监控权限）
+    // MARK: - NSEvent 监听（输入监控权限，辅助通道）
 
     public func rebuildMonitor() {
         if let monitor {
@@ -263,40 +220,6 @@ public final class HotKeyService {
         lastListeningAvailable = listening
         DebugLog.write("输入监控权限变化：\(listening)")
         rebuildMonitor()
-    }
-
-    // MARK: - Carbon 事件处理器
-
-    private func installCarbonEventHandler() {
-        var eventType = EventTypeSpec(
-            eventClass: hotKeyEventClass,
-            eventKind: hotKeyPressedKind
-        )
-        let callback: EventHandlerUPP = { _, event, _ in
-            guard let event else { return noErr }
-            var hotKeyID = EventHotKeyID()
-            let status = GetEventParameter(
-                event,
-                EventParamName(hotKeyParamName),
-                EventParamType(hotKeyTypeID),
-                nil,
-                MemoryLayout<EventHotKeyID>.size,
-                nil,
-                &hotKeyID
-            )
-            if status == noErr, hotKeyID.signature == hotKeySignature {
-                HotKeyService.shared.fire(tag: hotKeyID.id)
-            }
-            return noErr
-        }
-        InstallEventHandler(
-            GetApplicationEventTarget(),
-            callback,
-            1,
-            &eventType,
-            nil,
-            &carbonEventHandlerRef
-        )
     }
 
     // MARK: - 修饰键转换
