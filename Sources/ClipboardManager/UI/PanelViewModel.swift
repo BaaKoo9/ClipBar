@@ -12,10 +12,14 @@ final class PanelViewModel: ObservableObject {
     @Published var filterKind: ClipboardItem.Kind?
     @Published var scrollRequestID: Int64?
 
-    /// AppDelegate 注入：请求关闭面板（Esc、粘贴完成后等）。
-    var onRequestClose: (() -> Void)?
+    /// AppDelegate 注入：请求关闭面板（Esc、粘贴完成后等），参数为是否播放淡出动画。
+    var onRequestClose: ((Bool) -> Void)?
     /// AppDelegate 注入：请求打开独立设置窗口。
     var onOpenSettings: (() -> Void)?
+
+    func requestClose(animated: Bool = true) {
+        onRequestClose?(animated)
+    }
 
     /// 面板显示前调用：记住当前前台 App（呼出前一刻），粘贴时定向注入到它。
     func panelWillOpen(from pid: pid_t?) {
@@ -24,7 +28,11 @@ final class PanelViewModel: ObservableObject {
 
     private var loaded = false
     private var targetPID: pid_t?
+    private var searchWorkItem: DispatchWorkItem?
     private let enqueueQueue = DispatchQueue(label: "com.huxiaolong.clipboard.enqueue")
+
+    /// 面板是横向滚动条，超出这个量的历史无法被浏览，取回来只会拖慢每次刷新。
+    private static let pageSize = 300
 
     // MARK: - 生命周期
 
@@ -34,15 +42,20 @@ final class PanelViewModel: ObservableObject {
         refresh()
     }
 
+    /// 面板呼出：先用已有数据立即出图，再异步刷新，避免呼出时空窗。
     func panelDidOpen() {
-        loadHistory()
-        refresh()
         if selectedID == nil {
             selectedID = items.first?.id
+        }
+        if loaded {
+            refresh()
+        } else {
+            loadHistory()
         }
     }
 
     func panelDidClose() {
+        searchWorkItem?.cancel()
         if !searchText.isEmpty {
             searchText = ""
         }
@@ -50,8 +63,12 @@ final class PanelViewModel: ObservableObject {
 
     // MARK: - 搜索与筛选
 
+    /// 输入过程中防抖，避免每个按键都触发一次全表 LIKE 查询。
     func searchDidChange() {
-        refresh()
+        searchWorkItem?.cancel()
+        let work = DispatchWorkItem { [weak self] in self?.refresh() }
+        searchWorkItem = work
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.09, execute: work)
     }
 
     func setFilter(_ kind: ClipboardItem.Kind?) {
@@ -61,19 +78,19 @@ final class PanelViewModel: ObservableObject {
 
     private func refresh() {
         let query = searchText.trimmingCharacters(in: .whitespacesAndNewlines)
+        let kind = filterKind
         if query.isEmpty {
-            ClipboardStore.shared.fetchAll { [weak self] items in
+            ClipboardStore.shared.fetchAll(kind: kind?.rawValue, limit: Self.pageSize) { [weak self] items in
                 DispatchQueue.main.async { self?.apply(items) }
             }
         } else {
-            ClipboardStore.shared.search(query) { [weak self] items in
+            ClipboardStore.shared.search(query, kind: kind?.rawValue, limit: Self.pageSize) { [weak self] items in
                 DispatchQueue.main.async { self?.apply(items) }
             }
         }
     }
 
-    private func apply(_ rawItems: [ClipboardItem]) {
-        let newItems = filterKind.flatMap { kind in rawItems.filter { $0.kind == kind } } ?? rawItems
+    private func apply(_ newItems: [ClipboardItem]) {
         items = newItems
         if let selectedID, items.contains(where: { $0.id == selectedID }) {
             return
@@ -103,14 +120,16 @@ final class PanelViewModel: ObservableObject {
         if let hash = PasteService.shared.writeToPasteboard(item) {
             ClipboardMonitor.shared.ignore(hash: hash)
         }
-        onRequestClose?()
-        if AppSettings.shared.autoPasteEnabled, PasteService.hasAccessibilityPermission {
-            DispatchQueue.main.asyncAfter(deadline: .now() + 0.2) {
-                if NSApp.isActive {
-                    NSApp.deactivate()
-                }
-                self.injectPaste(to: self.targetPID)
+
+        let shouldPaste = AppSettings.shared.autoPasteEnabled && PasteService.hasAccessibilityPermission
+        // 粘贴场景跳过淡出动画：面板必须先让出焦点，注入才能落到目标 App。
+        requestClose(animated: !shouldPaste)
+
+        if shouldPaste {
+            if NSApp.isActive {
+                NSApp.deactivate()
             }
+            PasteService.activateAndPaste(pid: targetPID)
         } else if !PasteService.hasAccessibilityPermission {
             DebugLog.write("粘贴：无辅助功能权限，仅写回剪贴板")
             ToastWindowController.shared.show(
@@ -118,21 +137,6 @@ final class PanelViewModel: ObservableObject {
                 message: "未授权辅助功能，请手动 ⌘V；可在设置中开启",
                 systemImage: "exclamationmark.triangle"
             )
-        }
-    }
-
-    /// 激活前台目标并注入 ⌘V：先激活目标 App，稍等其获得焦点，再用系统级事件注入（对 Electron 类 App 更兼容）。
-    /// 注入 ⌘V 到指定 App：先激活，稍等焦点，再用系统级事件注入（对 Electron 类 App 更兼容）。
-    private func injectPaste(to pid: pid_t?) {
-        guard let pid else {
-            DebugLog.write("注入 ⌘V：无目标 App，系统级注入")
-            PasteService.injectCommandV()
-            return
-        }
-        let appName = PasteService.activateApp(pid: pid)
-        DebugLog.write("注入 ⌘V：pid=\(pid) app=\(appName ?? "未知")")
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.12) {
-            PasteService.injectCommandV()
         }
     }
 
@@ -165,16 +169,15 @@ final class PanelViewModel: ObservableObject {
     /// 面板内 ⌘+点击/⌘+回车：把当前选中项加入队列。
     func enqueueSelected() {
         guard let item = selectedItem else { return }
-        DebugLog.write("面板入队: \(item.kind.rawValue) \(item.previewLine.prefix(20)) count=\(pasteQueue.count + 1)")
+        let count = pasteQueue.count + 1
+        DebugLog.write("面板入队: \(item.kind.rawValue) \(item.previewLine.prefix(20)) count=\(count)")
         pasteQueue.append(item)
-        objectWillChange.send()
-        showEnqueueToast(item)
+        ToastWindowController.shared.showQueue(items: pasteQueue)
     }
 
     func clearQueue() {
         DebugLog.write("清空队列")
         pasteQueue = []
-        objectWillChange.send()
         ToastWindowController.shared.hideQueue()
     }
 
@@ -188,28 +191,23 @@ final class PanelViewModel: ObservableObject {
         }
         let before = NSPasteboard.general.changeCount
         if let pid = PasteService.frontmostPID() {
-            PasteService.activateApp(pid: pid)
             PasteService.injectCommandC(to: pid)
         } else {
             PasteService.injectCommandC()
         }
-        waitForPasteboardChange(before: before, retries: 10)
+        waitForPasteboardChange(before: before, deadline: CFAbsoluteTimeGetCurrent() + 0.5)
     }
 
-    private func waitForPasteboardChange(before: Int, retries: Int) {
-        guard retries > 0 else {
+    /// 高频轮询剪贴板变更：⌘C 通常 10–30ms 内生效，短间隔能显著降低入队的体感延迟。
+    private func waitForPasteboardChange(before: Int, deadline: CFAbsoluteTime) {
+        if NSPasteboard.general.changeCount != before || CFAbsoluteTimeGetCurrent() >= deadline {
             enqueueQueue.async { [weak self] in
                 self?.performEnqueueFromClipboard()
             }
             return
         }
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.05) { [weak self] in
-            guard let self else { return }
-            if NSPasteboard.general.changeCount != before {
-                self.enqueueQueue.async { self.performEnqueueFromClipboard() }
-            } else {
-                self.waitForPasteboardChange(before: before, retries: retries - 1)
-            }
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.006) { [weak self] in
+            self?.waitForPasteboardChange(before: before, deadline: deadline)
         }
     }
 
@@ -298,13 +296,8 @@ final class PanelViewModel: ObservableObject {
             guard let self else { return }
             self.pasteQueue.append(item)
             DebugLog.write("入队[速]: \(item.kind.rawValue) \(item.previewLine.prefix(20)) count=\(self.pasteQueue.count)")
-            self.objectWillChange.send()
-            self.showEnqueueToast(item)
+            ToastWindowController.shared.showQueue(items: self.pasteQueue)
         }
-    }
-
-    private func showEnqueueToast(_ item: ClipboardItem) {
-        ToastWindowController.shared.showQueue(items: pasteQueue)
     }
 
     /// 全局快捷键：从队列取出下一个写回剪贴板并粘贴。
@@ -318,18 +311,19 @@ final class PanelViewModel: ObservableObject {
             return
         }
         let item = pasteQueue.removeFirst()
-        DebugLog.write("出队: \(item.kind.rawValue) \(item.previewLine.prefix(20)) 剩余=\(pasteQueue.count)")
+        let remaining = pasteQueue.count
+        DebugLog.write("出队: \(item.kind.rawValue) \(item.previewLine.prefix(20)) 剩余=\(remaining)")
+        // 先记住目标：deactivate 之后 frontmostApplication 会变。
+        let target = PasteService.frontmostPID()
         if let hash = PasteService.shared.writeToPasteboard(item) {
             ClipboardMonitor.shared.ignore(hash: hash)
         }
         if PasteService.hasAccessibilityPermission {
             // 出队语义 = 粘贴：有权限就注入，不依赖自动粘贴开关
-            DispatchQueue.main.asyncAfter(deadline: .now() + 0.12) {
-                if NSApp.isActive {
-                    NSApp.deactivate()
-                }
-                self.injectPaste(to: PasteService.frontmostPID())
+            if NSApp.isActive {
+                NSApp.deactivate()
             }
+            PasteService.activateAndPaste(pid: target)
         } else {
             DebugLog.write("出队：无辅助功能权限，仅写回剪贴板")
             ToastWindowController.shared.show(

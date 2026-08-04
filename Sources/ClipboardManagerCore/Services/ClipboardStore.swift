@@ -82,6 +82,9 @@ public final class ClipboardStore {
             """
         )
         execute("CREATE INDEX IF NOT EXISTS idx_items_updated ON items(updated_at DESC)")
+        execute("CREATE INDEX IF NOT EXISTS idx_items_kind_updated ON items(kind, updated_at DESC)")
+        execute("PRAGMA journal_mode = WAL")
+        execute("PRAGMA synchronous = NORMAL")
         migrateIfNeeded()
     }
 
@@ -256,8 +259,16 @@ public final class ClipboardStore {
         }
     }
 
+    /// 只取 id，避免为了判断存在而把整条文本/路径读出来。
     private func exists(hash: String) -> Bool {
-        !query("SELECT \(Self.itemColumns) FROM items WHERE hash = ? LIMIT 1", [hash]).isEmpty
+        guard let db else { return false }
+        var stmt: OpaquePointer?
+        guard sqlite3_prepare_v2(db, "SELECT 1 FROM items WHERE hash = ? LIMIT 1", -1, &stmt, nil) == SQLITE_OK else {
+            return false
+        }
+        defer { sqlite3_finalize(stmt) }
+        sqlite3_bind_text(stmt, 1, hash, -1, SQLITE_TRANSIENT)
+        return sqlite3_step(stmt) == SQLITE_ROW
     }
 
     private func encodeFilePaths(_ paths: [String]) -> String {
@@ -305,31 +316,57 @@ public final class ClipboardStore {
         }
     }
 
-    public func fetchAll(completion: @escaping ([ClipboardItem]) -> Void) {
+    /// 分类与条数都下推到 SQL：面板只展示有限条目，取回全表既慢又浪费内存。
+    public func fetchAll(kind: String? = nil, limit: Int? = nil, completion: @escaping ([ClipboardItem]) -> Void) {
         queue.async { [weak self] in
-            let items = self?.query("SELECT \(Self.itemColumns) FROM items ORDER BY updated_at DESC, id DESC") ?? []
-            completion(items)
+            guard let self else {
+                completion([])
+                return
+            }
+            var sql = "SELECT \(Self.itemColumns) FROM items"
+            var bindings: [Any?] = []
+            if let kind {
+                sql += " WHERE kind = ?"
+                bindings.append(kind)
+            }
+            sql += " ORDER BY updated_at DESC, id DESC"
+            if let limit {
+                sql += " LIMIT ?"
+                bindings.append(limit)
+            }
+            completion(self.query(sql, bindings))
         }
     }
 
-    public func search(_ queryText: String, completion: @escaping ([ClipboardItem]) -> Void) {
+    public func search(
+        _ queryText: String,
+        kind: String? = nil,
+        limit: Int? = nil,
+        completion: @escaping ([ClipboardItem]) -> Void
+    ) {
         let trimmed = queryText.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else {
-            fetchAll(completion: completion)
+            fetchAll(kind: kind, limit: limit, completion: completion)
             return
         }
         let pattern = "%\(trimmed)%"
         queue.async { [weak self] in
-            let items = self?.query(
-                """
-                SELECT \(Self.itemColumns)
-                FROM items
-                WHERE text LIKE ? OR file_paths LIKE ?
-                ORDER BY updated_at DESC, id DESC
-                """,
-                [pattern, pattern]
-            ) ?? []
-            completion(items)
+            guard let self else {
+                completion([])
+                return
+            }
+            var sql = "SELECT \(Self.itemColumns) FROM items WHERE (text LIKE ? OR file_paths LIKE ?)"
+            var bindings: [Any?] = [pattern, pattern]
+            if let kind {
+                sql += " AND kind = ?"
+                bindings.append(kind)
+            }
+            sql += " ORDER BY updated_at DESC, id DESC"
+            if let limit {
+                sql += " LIMIT ?"
+                bindings.append(limit)
+            }
+            completion(self.query(sql, bindings))
         }
     }
 

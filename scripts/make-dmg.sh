@@ -8,8 +8,11 @@ cd "$ROOT"
 ./scripts/build-app.sh release
 
 STAGE="$ROOT/dist/dmg-stage"
+rm -rf "$STAGE"
 mkdir -p "$STAGE"
 cp -R "$ROOT/dist/$APP_NAME.app" "$STAGE/"
+# 提供 Applications 快捷方式，打开 DMG 后可直接把 App 拖进去
+ln -s /Applications "$STAGE/Applications"
 
 DMG_PATH="$ROOT/dist/Clipboard-Manager.dmg"
 hdiutil create -volname "Clipboard Manager" \

@@ -47,11 +47,42 @@ public final class PasteService {
     }
 
     /// 激活指定进程（注入前确保目标在前台并拿到键盘焦点）。
+    @discardableResult
     public static func activateApp(pid: pid_t) -> String? {
         guard let app = NSRunningApplication(processIdentifier: pid) else { return nil }
         app.activate(options: [.activateIgnoringOtherApps])
         return app.localizedName
     }
+
+    /// 激活目标 App，待其真正取得前台焦点后立刻注入 ⌘V。
+    ///
+    /// 用轮询探测取代固定等待：常见情况 10–40ms 即可完成注入，
+    /// `maxWait` 只在目标迟迟不激活时兜底。
+    public static func activateAndPaste(pid: pid_t?, maxWait: TimeInterval = 0.3) {
+        guard let pid, let app = NSRunningApplication(processIdentifier: pid) else {
+            DebugLog.write("注入 ⌘V：无目标 App，系统级注入")
+            injectCommandV()
+            return
+        }
+        DebugLog.write("注入 ⌘V：pid=\(pid) app=\(app.localizedName ?? "未知")")
+        app.activate(options: [.activateIgnoringOtherApps])
+
+        let deadline = CFAbsoluteTimeGetCurrent() + maxWait
+        func waitForFocus() {
+            guard !app.isActive, CFAbsoluteTimeGetCurrent() < deadline else {
+                // 目标已在前台，留一小段时间让其窗口完成键盘焦点交接。
+                DispatchQueue.main.asyncAfter(deadline: .now() + focusSettleDelay) {
+                    injectCommandV()
+                }
+                return
+            }
+            DispatchQueue.main.asyncAfter(deadline: .now() + focusPollInterval, execute: waitForFocus)
+        }
+        waitForFocus()
+    }
+
+    private static let focusPollInterval: TimeInterval = 0.008
+    private static let focusSettleDelay: TimeInterval = 0.03
 
     /// 定向注入 ⌘C 到指定进程。
     public static func injectCommandC(to pid: pid_t) {

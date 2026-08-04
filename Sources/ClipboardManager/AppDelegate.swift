@@ -16,12 +16,23 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         NSApp.setActivationPolicy(.accessory)
-        ClipboardMonitor.shared.start()
-        setupStatusItem()
-        setupPanel()
-        panelViewModel.loadHistory()
+
+        // 快捷键必须最先就绪：事件 tap 是在首次访问 HotKeyService.shared 时创建的，
+        // 若排在面板构建之后，冷启动时 SwiftUI 初始化那一两秒内快捷键完全无响应。
         registerHotKeys()
+        DebugLog.write("启动：快捷键就绪，耗时 \(LaunchClock.elapsedMilliseconds)ms")
+
+        setupStatusItem()
+        ClipboardMonitor.shared.start()
         requestPermissionsIfNeeded()
+
+        // 面板预构建（SwiftUI + 毛玻璃）较慢，挪到下一轮 runloop，不占用启动关键路径。
+        DispatchQueue.main.async { [weak self] in
+            guard let self else { return }
+            self.setupPanel()
+            self.panelViewModel.loadHistory()
+            DebugLog.write("启动：面板预构建完成，耗时 \(LaunchClock.elapsedMilliseconds)ms")
+        }
 
         NotificationCenter.default.addObserver(
             forName: .clipboardHotKeyChanged,
@@ -35,11 +46,21 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
             forName: NSApplication.didBecomeActiveNotification,
             object: nil,
             queue: .main
-        ) { [weak self] _ in
+        ) { _ in
             HotKeyService.shared.rebuildMonitor()
             if HotKeyService.isAccessibilityAvailable, !HotKeyService.isListeningAvailable {
                 HotKeyService.requestListeningAccess()
             }
+        }
+
+        // 休眠唤醒后系统常会让事件 tap 失效，这里主动重建。
+        NSWorkspace.shared.notificationCenter.addObserver(
+            forName: NSWorkspace.didWakeNotification,
+            object: nil,
+            queue: .main
+        ) { _ in
+            DebugLog.write("系统唤醒，重建快捷键通道")
+            HotKeyService.shared.reinitialize()
         }
     }
 
@@ -95,7 +116,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         let item = NSStatusBar.system.statusItem(withLength: NSStatusItem.squareLength)
         if let button = item.button {
             button.image = NSImage(
-                systemSymbolName: "doc.on.clipboard",
+                systemSymbolName: "rectangle.stack",
                 accessibilityDescription: "剪贴板"
             )
             button.image?.isTemplate = true
@@ -123,6 +144,17 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         let showItem = NSMenuItem(title: "显示剪贴板面板", action: #selector(togglePanelAction(_:)), keyEquivalent: "")
         showItem.target = self
 
+        let status = HotKeyService.shared.status
+        let statusItem = NSMenuItem(title: "快捷键状态：\(status.description)", action: nil, keyEquivalent: "")
+        statusItem.isEnabled = false
+
+        let reinitItem = NSMenuItem(
+            title: "重新初始化快捷键",
+            action: #selector(reinitializeHotKeys(_:)),
+            keyEquivalent: ""
+        )
+        reinitItem.target = self
+
         let settingsItem = NSMenuItem(title: "设置…", action: #selector(openSettings(_:)), keyEquivalent: "")
         settingsItem.target = self
 
@@ -130,12 +162,41 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         aboutItem.target = self
 
         menu.addItem(showItem)
+        menu.addItem(.separator())
+        menu.addItem(statusItem)
+        menu.addItem(reinitItem)
+        menu.addItem(.separator())
         menu.addItem(settingsItem)
         menu.addItem(aboutItem)
         menu.addItem(.separator())
         menu.addItem(NSMenuItem(title: "退出 Clipboard Manager", action: #selector(quitApp(_:)), keyEquivalent: "q"))
 
         NSMenu.popUpContextMenu(menu, with: NSApp.currentEvent ?? NSEvent(), for: view)
+    }
+
+    /// 手动重建快捷键通道：权限已授予但系统 TCC 缓存滞后时的兜底入口。
+    @objc private func reinitializeHotKeys(_ sender: Any?) {
+        HotKeyService.shared.reinitialize()
+        registerHotKeys()
+
+        if !HotKeyService.isAccessibilityAvailable {
+            HotKeyService.requestAccessibilityAccess()
+        }
+        if !HotKeyService.isListeningAvailable {
+            HotKeyService.requestListeningAccess()
+        }
+
+        // 重建是异步的，稍后再读状态才准确。
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.4) {
+            let status = HotKeyService.shared.status
+            ToastWindowController.shared.show(
+                title: status.isWorking ? "快捷键已就绪" : "快捷键仍未生效",
+                message: status.isWorking
+                    ? "当前状态：\(status.description)"
+                    : "请在系统设置中授予辅助功能与输入监控权限",
+                systemImage: status.isWorking ? "checkmark.circle" : "exclamationmark.triangle"
+            )
+        }
     }
 
     @objc private func togglePanelAction(_ sender: Any?) {
@@ -210,6 +271,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
     // MARK: - 底部面板
 
     private func setupPanel() {
+        guard panelController == nil else { return }
         let controller = BottomPanelController(viewModel: panelViewModel)
         controller.prepare()
         panelController = controller
@@ -228,6 +290,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
 
      private func togglePanel() {
         DebugLog.write("面板切换触发")
+        // 面板改为异步预构建，极早期按下快捷键时这里补建，避免按了没反应。
+        setupPanel()
         // 快捷键呼出只关心剪切板，设置窗口不随之出现
         settingsWindow?.orderOut(nil)
         panelController?.toggle()

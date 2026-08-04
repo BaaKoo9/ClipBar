@@ -1,0 +1,9 @@
+#!/bin/bash
+# 覆盖安装前先退出正在运行的实例，避免替换正在执行的二进制。
+set -u
+
+osascript -e 'quit app "Clipboard Manager"' >/dev/null 2>&1 || true
+sleep 1
+pkill -f "Clipboard Manager.app/Contents/MacOS/ClipboardManager" >/dev/null 2>&1 || true
+
+exit 0

@@ -70,7 +70,7 @@ struct SnapshotBarView: View {
                     return .handled
                 }
                 .onKeyPress(.escape) {
-                    viewModel.onRequestClose?()
+                    viewModel.requestClose()
                     return .handled
                 }
                 .onKeyPress { press in

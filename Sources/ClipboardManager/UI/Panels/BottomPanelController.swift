@@ -7,12 +7,14 @@ import SwiftUI
 final class BottomPanelController: NSObject {
     private var panel: NSPanel?
     private let viewModel: PanelViewModel
+    /// 每次显示/隐藏自增，用来作废上一次操作挂起的动画收尾。
+    private var visibilityToken: UInt = 0
 
     init(viewModel: PanelViewModel) {
         self.viewModel = viewModel
         super.init()
-        viewModel.onRequestClose = { [weak self] in
-            self?.hide()
+        viewModel.onRequestClose = { [weak self] animated in
+            self?.hide(animated: animated)
         }
         NotificationCenter.default.addObserver(
             forName: NSApplication.didResignActiveNotification,
@@ -51,35 +53,43 @@ final class BottomPanelController: NSObject {
         DebugLog.write("show 面板 screen=\(NSStringFromRect(screen.frame)) visible=\(NSStringFromRect(visible))")
         let width = visible.width - 32
         let height: CGFloat = 280
-        let x = visible.midX - width / 2
-        let finalY = visible.minY + 16
-        let startRect = NSRect(x: x, y: finalY - 28, width: width, height: height)
-        let finalRect = NSRect(x: x, y: finalY, width: width, height: height)
+        let finalRect = NSRect(x: visible.midX - width / 2, y: visible.minY + 16, width: width, height: height)
 
-        // 先定位并隐藏，再显示，避免闪现旧位置造成拖影
-        panel.setFrame(startRect, display: false)
+        // 作废挂起的隐藏收尾：淡出动画未结束时再次呼出，
+        // 否则旧的 completionHandler 会把刚显示的面板 orderOut 掉。
+        visibilityToken &+= 1
+
+        // 直接落到最终位置：对接近全屏宽的毛玻璃窗口做位移动画会逐帧重排整个视图树，
+        // 是呼出卡顿的主要来源。只做透明度过渡，观感依旧平滑但没有布局开销。
+        panel.setFrame(finalRect, display: false)
         panel.alphaValue = 0
         NSApp.activate(ignoringOtherApps: true)
         panel.makeKeyAndOrderFront(nil)
-        // 防御：首次显示偶发失败时强制置前，并延迟复查重试
         if !panel.isVisible {
             panel.orderFrontRegardless()
         }
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) { [weak self] in
-            guard let self, let panel = self.panel, !panel.isVisible else { return }
-            DebugLog.write("面板首显失败，重试")
-            panel.orderFrontRegardless()
-            panel.makeKeyAndOrderFront(nil)
-        }
 
         NSAnimationContext.runAnimationGroup { context in
-            context.duration = 0.15
+            context.duration = 0.09
             context.timingFunction = CAMediaTimingFunction(name: .easeOut)
-            panel.animator().setFrame(finalRect, display: true)
             panel.animator().alphaValue = 1
         }
 
         viewModel.panelDidOpen()
+
+        // 冷启动或多屏切换时首显偶发失败，复查一次并记录真实结果。
+        let token = visibilityToken
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.25) { [weak self] in
+            guard let self, let panel = self.panel, token == self.visibilityToken else { return }
+            if panel.isVisible {
+                DebugLog.write("面板已显示 visible=true alpha=\(panel.alphaValue)")
+            } else {
+                DebugLog.write("面板首显失败，强制置前重试")
+                panel.alphaValue = 1
+                panel.orderFrontRegardless()
+                panel.makeKeyAndOrderFront(nil)
+            }
+        }
     }
 
     func hide(animated: Bool = true) {
@@ -87,13 +97,17 @@ final class BottomPanelController: NSObject {
             viewModel.panelDidClose()
             return
         }
+        visibilityToken &+= 1
+        let token = visibilityToken
         let finish = { [weak self] in
+            guard let self, token == self.visibilityToken else { return }
             panel.orderOut(nil)
-            self?.viewModel.panelDidClose()
+            panel.alphaValue = 1
+            self.viewModel.panelDidClose()
         }
         if animated {
             NSAnimationContext.runAnimationGroup({ context in
-                context.duration = 0.15
+                context.duration = 0.09
                 panel.animator().alphaValue = 0
             }, completionHandler: finish)
         } else {

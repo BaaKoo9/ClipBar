@@ -57,12 +57,17 @@ public final class ClipboardMonitor {
     private func process(_ items: [NSPasteboardItem]) {
         // 1. 图片优先：截图工具（如 PixPin）可能同时提供文件引用和图片数据，
         //    有图片数据时一律按图片处理
-        if let imageData = pasteboard.data(forType: .png) ?? pasteboard.data(forType: .tiff),
-           let image = NSImage(data: imageData) {
-            let canonicalData = image.pngData() ?? imageData
-            let hash = Hashing.sha256Hex(canonicalData)
-            guard hash != lastWrittenHash else { return }
-            saveImage(data: canonicalData, hash: hash) { originalPath, thumbPath in
+        if let imageData = pasteboard.data(forType: .png) ?? pasteboard.data(forType: .tiff) {
+            // 解码、重编码 PNG 与 SHA256 对大截图都是重活，全部放到后台，
+            // 否则复制一张图会卡住主线程上的所有交互。
+            let ignoredHash = lastWrittenHash
+            DispatchQueue.global(qos: .userInitiated).async {
+                guard let image = NSImage(data: imageData) else { return }
+                let canonicalData = image.pngData() ?? imageData
+                let hash = Hashing.sha256Hex(canonicalData)
+                guard hash != ignoredHash else { return }
+                let (originalPath, thumbPath) = Self.persistImage(data: canonicalData, hash: hash)
+                guard originalPath != nil else { return }
                 ClipboardStore.shared.upsert(NewClipboardItem(
                     kind: .image,
                     imagePath: thumbPath,
@@ -132,25 +137,19 @@ public final class ClipboardMonitor {
         return nil
     }
 
-    private func saveImage(data: Data, hash: String, completion: @escaping (String?, String?) -> Void) {
+    /// 原图与缩略图落盘（调用方需保证在后台线程）。
+    private static nonisolated func persistImage(data: Data, hash: String) -> (String?, String?) {
         let directory = ClipboardStore.defaultImagesDirectory()
         let originalURL = directory.appendingPathComponent("\(hash).data")
         let thumbURL = directory.appendingPathComponent("\(hash)_thumb.jpg")
-
-        DispatchQueue.global(qos: .userInitiated).async {
-            do {
-                try data.write(to: originalURL)
-                let thumbData = Self.makeThumbnail(from: data, maxDimension: 512)
-                try thumbData?.write(to: thumbURL)
-                DispatchQueue.main.async {
-                    completion(originalURL.path, thumbURL.path)
-                }
-            } catch {
-                print("保存图片失败: \(error)")
-                DispatchQueue.main.async {
-                    completion(nil, nil)
-                }
-            }
+        do {
+            try data.write(to: originalURL)
+            let thumbData = makeThumbnail(from: data, maxDimension: 512)
+            try thumbData?.write(to: thumbURL)
+            return (originalURL.path, thumbURL.path)
+        } catch {
+            DebugLog.write("保存图片失败: \(error)")
+            return (nil, nil)
         }
     }
 
