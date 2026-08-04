@@ -16,4 +16,7 @@ hdiutil create -volname "Clipboard Manager" \
     -srcfolder "$STAGE" \
     -ov -format UDZO "$DMG_PATH" >/dev/null
 
+if [ -d "$STAGE" ]; then
+    find "$STAGE" -depth -delete
+fi
 echo "DMG 已生成: $DMG_PATH"

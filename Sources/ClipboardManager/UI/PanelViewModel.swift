@@ -9,7 +9,9 @@ final class PanelViewModel: ObservableObject {
     @Published var items: [ClipboardItem] = []
     @Published var selectedID: Int64?
     @Published var showsSettings = false
-    @Published var pasteQueue: [ClipboardItem] = []
+     var pasteQueue: [ClipboardItem] = []
+     var filterKind: ClipboardItem.Kind?
+     var scrollRequestID: Int64?
 
     /// AppDelegate 注入：请求关闭面板（Esc、粘贴完成后等）。
     var onRequestClose: (() -> Void)?
@@ -43,6 +45,11 @@ final class PanelViewModel: ObservableObject {
         refresh()
     }
 
+    func setFilter(_ kind: ClipboardItem.Kind?) {
+        filterKind = kind
+        refresh()
+    }
+
     private func refresh() {
         let query = searchText.trimmingCharacters(in: .whitespacesAndNewlines)
         if query.isEmpty {
@@ -56,7 +63,8 @@ final class PanelViewModel: ObservableObject {
         }
     }
 
-    private func apply(_ newItems: [ClipboardItem]) {
+    private func apply(_ rawItems: [ClipboardItem]) {
+        let newItems = filterKind.flatMap { kind in rawItems.filter { $0.kind == kind } } ?? rawItems
         items = newItems
         if let selectedID, items.contains(where: { $0.id == selectedID }) {
             return
@@ -75,6 +83,7 @@ final class PanelViewModel: ObservableObject {
         let currentIndex = items.firstIndex { $0.id == selectedID } ?? -1
         let newIndex = min(max(currentIndex + offset, 0), items.count - 1)
         selectedID = items[newIndex].id
+        scrollRequestID = selectedID
     }
 
     // MARK: - 基础操作

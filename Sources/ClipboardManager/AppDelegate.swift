@@ -20,6 +20,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         setupPanel()
         panelViewModel.loadHistory()
         registerHotKeys()
+        requestListeningAccessIfNeeded()
 
         NotificationCenter.default.addObserver(
             forName: .clipboardHotKeyChanged,
@@ -27,6 +28,23 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             queue: .main
         ) { [weak self] _ in
             self?.registerHotKeys()
+        }
+
+        NotificationCenter.default.addObserver(
+            forName: NSApplication.didBecomeActiveNotification,
+            object: nil,
+            queue: .main
+        ) { [weak self] _ in
+            // 用户从系统设置授权返回后，重新挂载全局监听
+            HotKeyService.shared.rebuildMonitor()
+        }
+    }
+
+    private func requestListeningAccessIfNeeded() {
+        guard !HotKeyService.isListeningAvailable else { return }
+        // 首次启动弹出系统授权提示
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.8) {
+            HotKeyService.requestListeningAccess()
         }
     }
 

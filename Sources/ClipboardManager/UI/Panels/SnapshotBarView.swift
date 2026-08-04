@@ -2,7 +2,7 @@ import AppKit
 import ClipboardManagerCore
 import SwiftUI
 
-/// 屏幕底部的快照条：横向卡片列表 + 搜索 + 键盘导航。
+/// 屏幕底部的快照条：分类筛选 + 横向卡片列表 + 搜索 + 键盘导航。
 struct SnapshotBarView: View {
     @ObservedObject var viewModel: PanelViewModel
     @FocusState private var searchFocused: Bool
@@ -18,6 +18,8 @@ struct SnapshotBarView: View {
     private var snapshotContent: some View {
         VStack(spacing: 0) {
             topBar
+
+            filterBar
 
             Divider()
 
@@ -35,7 +37,7 @@ struct SnapshotBarView: View {
             Divider()
             hintBar
         }
-        .frame(width: 860, height: 190)
+        .frame(minWidth: 560, maxWidth: .infinity, minHeight: 196, maxHeight: 214)
         .background(.ultraThinMaterial)
         .clipShape(RoundedRectangle(cornerRadius: 20, style: .continuous))
         .overlay(
@@ -101,6 +103,38 @@ struct SnapshotBarView: View {
         .padding(.vertical, 8)
     }
 
+    // MARK: - 分类筛选
+
+    private var filterBar: some View {
+        HStack(spacing: 6) {
+            FilterChip(title: "全部", isSelected: viewModel.filterKind == nil) {
+                viewModel.setFilter(nil)
+            }
+            FilterChip(title: "文本", isSelected: viewModel.filterKind == .text) {
+                viewModel.setFilter(.text)
+            }
+            FilterChip(title: "链接", isSelected: viewModel.filterKind == .link) {
+                viewModel.setFilter(.link)
+            }
+            FilterChip(title: "图片", isSelected: viewModel.filterKind == .image) {
+                viewModel.setFilter(.image)
+            }
+            FilterChip(title: "文件", isSelected: viewModel.filterKind == .file) {
+                viewModel.setFilter(.file)
+            }
+
+            Spacer()
+
+            if let count = viewModel.items.count as Int? {
+                Text("\(count) 条")
+                    .font(.system(size: 10))
+                    .foregroundStyle(.tertiary)
+            }
+        }
+        .padding(.horizontal, 14)
+        .padding(.bottom, 8)
+    }
+
     // MARK: - 快照卡片
 
     private var snapshotScroller: some View {
@@ -113,14 +147,10 @@ struct SnapshotBarView: View {
                             isSelected: item.id == viewModel.selectedID,
                             highlight: viewModel.searchText.trimmingCharacters(in: .whitespacesAndNewlines)
                         )
-                        .frame(width: 210, height: 112)
+                        .frame(width: 210, height: 108)
                         .contentShape(Rectangle())
                         .onTapGesture {
                             viewModel.selectedID = item.id
-                        }
-                        .onTapGesture(count: 2) {
-                            viewModel.selectedID = item.id
-                            viewModel.pasteSelected()
                         }
                         .contextMenu {
                             if item.kind == .link, let text = item.text, let url = URL(string: text) {
@@ -140,6 +170,10 @@ struct SnapshotBarView: View {
                                 viewModel.selectedID = item.id
                                 viewModel.enqueueSelected()
                             }
+                            Button("粘贴") {
+                                viewModel.selectedID = item.id
+                                viewModel.pasteSelected()
+                            }
                             Button("删除", role: .destructive) {
                                 viewModel.deleteItem(item)
                             }
@@ -147,13 +181,11 @@ struct SnapshotBarView: View {
                     }
                 }
                 .padding(.horizontal, 14)
-                .padding(.vertical, 6)
+                .padding(.vertical, 4)
             }
-            .onChange(of: viewModel.selectedID) { _, newID in
+            .onChange(of: viewModel.scrollRequestID) { _, newID in
                 if let newID {
-                    withAnimation(.easeOut(duration: 0.15)) {
-                        proxy.scrollTo(newID, anchor: .center)
-                    }
+                    proxy.scrollTo(newID, anchor: .center)
                 }
             }
         }
@@ -214,6 +246,26 @@ struct SnapshotBarView: View {
         .foregroundStyle(.secondary)
         .padding(.horizontal, 14)
         .padding(.vertical, 5)
+    }
+}
+
+// MARK: - 分类筛选 Chip
+
+private struct FilterChip: View {
+    let title: String
+    let isSelected: Bool
+    let action: () -> Void
+
+    var body: some View {
+        Button(action: action) {
+            Text(title)
+                .font(.system(size: 11, weight: isSelected ? .semibold : .regular))
+                .foregroundStyle(isSelected ? .white : .secondary)
+                .padding(.horizontal, 12)
+                .padding(.vertical, 4)
+                .background(isSelected ? Color.accentColor : Color.primary.opacity(0.05), in: Capsule())
+        }
+        .buttonStyle(.plain)
     }
 }
 

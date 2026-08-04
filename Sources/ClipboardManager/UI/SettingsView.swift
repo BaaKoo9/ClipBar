@@ -50,7 +50,7 @@ struct SettingsView: View {
                 .padding(14)
             }
         }
-        .frame(width: 860, height: 190)
+.frame(minWidth: 560, maxWidth: .infinity, minHeight: 196, maxHeight: 214)
         .background(.ultraThinMaterial)
         .clipShape(RoundedRectangle(cornerRadius: 20, style: .continuous))
         .overlay(
@@ -87,8 +87,22 @@ struct SettingsView: View {
     private var shortcutSection: some View {
         VStack(alignment: .leading, spacing: 10) {
             Text("全局快捷键")
-                .font(.system(size: 12, weight: .semibold))
-                .foregroundStyle(.secondary)
+
+            if !HotKeyService.isListeningAvailable {
+                HStack(spacing: 6) {
+                    Image(systemName: "exclamationmark.triangle")
+                        .font(.system(size: 10))
+                        .foregroundStyle(.orange)
+                    Text("全局快捷键需要「输入监控」权限")
+                        .font(.system(size: 11))
+                        .foregroundStyle(.secondary)
+                    Button("去开启") {
+                        openListenEventSettings()
+                    }
+                    .font(.system(size: 11))
+                    .buttonStyle(.link)
+                }
+            }
 
             ShortcutRecorder(
                 title: "呼出面板",
@@ -112,6 +126,12 @@ struct SettingsView: View {
             Text("入队复制把当前剪贴板内容加入粘贴队列；出队粘贴把队列下一条写回剪贴板并粘贴。")
                 .font(.system(size: 11))
                 .foregroundStyle(.tertiary)
+        }
+    }
+
+    private func openListenEventSettings() {
+        if let url = URL(string: "x-apple.systempreferences:com.apple.preference.security?Privacy_ListenEvent") {
+            NSWorkspace.shared.open(url)
         }
     }
 

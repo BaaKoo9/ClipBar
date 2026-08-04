@@ -1,41 +1,35 @@
-import Carbon
+import AppKit
 import Foundation
 
-// 文件级状态：Carbon 的 C 回调不能捕获类型上下文，因此用全局变量承载。
-private var hotKeyHandlers: [UInt32: (() -> Void)] = [:]
-private var hotKeyRefs: [UInt32: EventHotKeyRef] = [:]
-private var eventHandlerRef: EventHandlerRef?
-
-// 四字符常量（避免 Carbon 宏在 Swift 中的兼容问题）
-private let hotKeyEventClass: OSType = 0x6B657962 // 'keyb'
-private let hotKeyPressedKind: UInt32 = 1
-private let hotKeyTypeID: OSType = 0x686B6964 // 'hkid'
-private let hotKeyParamName: UInt32 = 0x6469726F // 'diro'
-private let hotKeySignature: OSType = 0x434D484B // 'CMHK'
-
-private func fireHotKeyHandler(id: UInt32) {
-    DispatchQueue.main.async {
-        hotKeyHandlers[id]?()
-    }
-}
-
-/// 全局快捷键服务（Carbon RegisterEventHotKey，无需辅助功能权限）。
-/// 支持注册多个热键，用 tag 区分。
+/// 全局快捷键服务：基于 NSEvent 全局键盘监听。
+/// 需要「输入监控」权限（macOS 系统设置 → 隐私与安全性 → 输入监控）。
 public final class HotKeyService {
     public static let shared = HotKeyService()
 
-    private init() {
-        installEventHandler()
+    private struct Registration {
+        let keyCode: Int
+        let modifiers: UInt
+        let handler: () -> Void
     }
 
-    deinit {
-        Self.unregisterAll()
-        if let eventHandlerRef {
-            RemoveEventHandler(eventHandlerRef)
-        }
+    private var registrations: [UInt32: Registration] = [:]
+    private var monitor: Any?
+    private let lock = NSLock()
+
+    private init() {}
+
+    /// 是否已获得输入监控权限。
+    public static var isListeningAvailable: Bool {
+        CGPreflightListenEventAccess()
     }
 
-    /// 注册全局快捷键；同 tag 会先注销旧的。返回是否注册成功。
+    /// 主动请求输入监控权限（弹出系统授权框）。
+    @discardableResult
+    public static func requestListeningAccess() -> Bool {
+        CGRequestListenEventAccess()
+    }
+
+    /// 注册全局快捷键；同 tag 覆盖旧注册。
     @discardableResult
     public func register(
         tag: UInt32,
@@ -43,73 +37,69 @@ public final class HotKeyService {
         modifiers: UInt,
         handler: @escaping () -> Void
     ) -> Bool {
-        unregister(tag: tag)
-
-        var hotKeyID = EventHotKeyID(signature: hotKeySignature, id: tag)
-        var ref: EventHotKeyRef?
-        let status = RegisterEventHotKey(
-            UInt32(keyCode),
-            UInt32(modifiers),
-            hotKeyID,
-            GetApplicationEventTarget(),
-            0,
-            &ref
-        )
-        guard status == noErr else {
-            print("RegisterEventHotKey 失败(tag=\(tag)): \(status)")
-            return false
-        }
-        hotKeyRefs[tag] = ref
-        hotKeyHandlers[tag] = handler
+        lock.lock()
+        registrations[tag] = Registration(keyCode: keyCode, modifiers: modifiers, handler: handler)
+        lock.unlock()
+        rebuildMonitor()
         return true
     }
 
     public func unregister(tag: UInt32) {
-        if let ref = hotKeyRefs.removeValue(forKey: tag) {
-            UnregisterEventHotKey(ref)
-        }
-        hotKeyHandlers.removeValue(forKey: tag)
+        lock.lock()
+        registrations.removeValue(forKey: tag)
+        lock.unlock()
+        rebuildMonitor()
     }
 
     public static func unregisterAll() {
-        for (_, ref) in hotKeyRefs {
-            UnregisterEventHotKey(ref)
-        }
-        hotKeyRefs.removeAll()
-        hotKeyHandlers.removeAll()
+        shared.unregisterAll()
     }
 
-    private func installEventHandler() {
-        var eventType = EventTypeSpec(
-            eventClass: hotKeyEventClass,
-            eventKind: hotKeyPressedKind
-        )
+    private func unregisterAll() {
+        lock.lock()
+        registrations.removeAll()
+        lock.unlock()
+        rebuildMonitor()
+    }
 
-        let callback: EventHandlerUPP = { _, event, _ in
-            guard let event else { return noErr }
-            var hotKeyID = EventHotKeyID()
-            let status = GetEventParameter(
-                event,
-                EventParamName(hotKeyParamName),
-                EventParamType(hotKeyTypeID),
-                nil,
-                MemoryLayout<EventHotKeyID>.size,
-                nil,
-                &hotKeyID
-            )
-            if status == noErr, hotKeyID.signature == hotKeySignature {
-                fireHotKeyHandler(id: hotKeyID.id)
-            }
-            return noErr
+    /// 授权变化（如用户从系统设置返回）后重新挂载监听。
+    public func rebuildMonitor() {
+        if let monitor {
+            NSEvent.removeMonitor(monitor)
+            self.monitor = nil
         }
+        lock.lock()
+        let hasRegistrations = !registrations.isEmpty
+        lock.unlock()
+        guard hasRegistrations, Self.isListeningAvailable else { return }
 
-        InstallEventHandler(
-            GetApplicationEventTarget(),
-            callback,
-            1,
-            &eventType,
-            nil,
-            &eventHandlerRef
-        )
+        monitor = NSEvent.addGlobalMonitorForEvents(matching: .keyDown) { [weak self] event in
+            self?.handle(event)
+        }
+    }
+
+    private func handle(_ event: NSEvent) {
+        let flags = event.modifierFlags.intersection([.command, .option, .control, .shift])
+        let carbonFlags = Self.carbonModifiers(from: flags)
+        let keyCode = Int(event.keyCode)
+
+        lock.lock()
+        let matches = registrations.values.filter {
+            $0.keyCode == keyCode && $0.modifiers == carbonFlags
+        }
+        lock.unlock()
+
+        for registration in matches {
+            registration.handler()
+        }
+    }
+
+    private static func carbonModifiers(from flags: NSEvent.ModifierFlags) -> UInt {
+        var value: UInt = 0
+        if flags.contains(.control) { value |= 4096 }
+        if flags.contains(.option) { value |= 2048 }
+        if flags.contains(.shift) { value |= 512 }
+        if flags.contains(.command) { value |= 256 }
+        return value
     }
 }
