@@ -8,17 +8,17 @@ final class PanelViewModel: ObservableObject {
     @Published var searchText = ""
     @Published var items: [ClipboardItem] = []
     @Published var selectedID: Int64?
-     var pasteQueue: [ClipboardItem] = []
-     var filterKind: ClipboardItem.Kind?
-     var scrollRequestID: Int64?
+    @Published var pasteQueue: [ClipboardItem] = []
+    @Published var filterKind: ClipboardItem.Kind?
+    @Published var scrollRequestID: Int64?
 
     /// AppDelegate 注入：请求关闭面板（Esc、粘贴完成后等）。
     var onRequestClose: (() -> Void)?
-
     /// AppDelegate 注入：请求打开独立设置窗口。
     var onOpenSettings: (() -> Void)?
 
     private var loaded = false
+    private let enqueueQueue = DispatchQueue(label: "com.huxiaolong.clipboard.enqueue")
 
     // MARK: - 生命周期
 
@@ -42,7 +42,7 @@ final class PanelViewModel: ObservableObject {
         }
     }
 
-    // MARK: - 搜索
+    // MARK: - 搜索与筛选
 
     func searchDidChange() {
         refresh()
@@ -89,7 +89,7 @@ final class PanelViewModel: ObservableObject {
         scrollRequestID = selectedID
     }
 
-    // MARK: - 基础操作
+    // MARK: - 粘贴
 
     func pasteSelected() {
         guard let item = selectedItem else { return }
@@ -103,16 +103,26 @@ final class PanelViewModel: ObservableObject {
                 if NSApp.isActive {
                     NSApp.deactivate()
                 }
-                let pid = PasteService.frontmostPID()
-                DebugLog.write("注入 ⌘V：pid=\(pid ?? -1)")
-                if let pid {
-                    PasteService.injectCommandV(to: pid)
-                } else {
-                    PasteService.injectCommandV()
-                }
+                self.injectPasteToFrontmost()
             }
         }
     }
+
+    /// 激活前台目标并注入 ⌘V：先激活目标 App，稍等其获得焦点，再用系统级事件注入（对 Electron 类 App 更兼容）。
+    private func injectPasteToFrontmost() {
+        if let pid = PasteService.frontmostPID() {
+            let appName = PasteService.activateApp(pid: pid)
+            DebugLog.write("注入 ⌘V：pid=\(pid) app=\(appName ?? "未知")")
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.15) {
+                PasteService.injectCommandV()
+            }
+        } else {
+            DebugLog.write("注入 ⌘V：未找到前台 App，系统级注入")
+            PasteService.injectCommandV()
+        }
+    }
+
+    // MARK: - 基础操作
 
     func togglePin(_ item: ClipboardItem) {
         ClipboardStore.shared.setPinned(id: item.id, pinned: !item.pinned) { [weak self] in
@@ -143,11 +153,8 @@ final class PanelViewModel: ObservableObject {
         guard let item = selectedItem else { return }
         DebugLog.write("面板入队: \(item.kind.rawValue) \(item.previewLine.prefix(20)) count=\(pasteQueue.count + 1)")
         pasteQueue.append(item)
-        ToastWindowController.shared.show(
-            title: "已入队（\(pasteQueue.count)）",
-            message: item.previewLine,
-            systemImage: "list.number"
-        )
+        objectWillChange.send()
+        showEnqueueToast(item)
     }
 
     func clearQueue() {
@@ -156,13 +163,9 @@ final class PanelViewModel: ObservableObject {
         objectWillChange.send()
     }
 
-    /// 入队串行队列：保证快捷键入队顺序与用户操作一致（图片处理是异步的，不串行会乱序）。
-    private let enqueueQueue = DispatchQueue(label: "com.huxiaolong.clipboard.enqueue")
-
     /// 全局快捷键：模拟普通复制（⌘C）后再把新剪贴板内容加入队列。
     func enqueueFromClipboard() {
         guard PasteService.hasAccessibilityPermission else {
-            // 无辅助功能权限时退回：入队当前剪贴板
             enqueueQueue.async { [weak self] in
                 self?.performEnqueueFromClipboard()
             }
@@ -170,6 +173,7 @@ final class PanelViewModel: ObservableObject {
         }
         let before = NSPasteboard.general.changeCount
         if let pid = PasteService.frontmostPID() {
+            PasteService.activateApp(pid: pid)
             PasteService.injectCommandC(to: pid)
         } else {
             PasteService.injectCommandC()
@@ -279,49 +283,8 @@ final class PanelViewModel: ObservableObject {
             guard let self else { return }
             self.pasteQueue.append(item)
             DebugLog.write("入队[速]: \(item.kind.rawValue) \(item.previewLine.prefix(20)) count=\(self.pasteQueue.count)")
+            self.objectWillChange.send()
             self.showEnqueueToast(item)
-        }
-    }
-
-    /// 在入队队列中同步保存图片（不阻塞主线程）。
-    private static nonisolated func makeThumbnail(from data: Data, maxDimension: CGFloat) -> Data? {
-        guard let image = NSImage(data: data) else { return nil }
-        let size = image.size
-        guard size.width > 0, size.height > 0 else { return nil }
-        let scale = min(1, maxDimension / max(size.width, size.height))
-        let target = NSSize(width: size.width * scale, height: size.height * scale)
-        guard let rep = NSBitmapImageRep(
-            bitmapDataPlanes: nil,
-            pixelsWide: Int(target.width),
-            pixelsHigh: Int(target.height),
-            bitsPerSample: 8,
-            samplesPerPixel: 4,
-            hasAlpha: true,
-            isPlanar: false,
-            colorSpaceName: .calibratedRGB,
-            bytesPerRow: 0,
-            bitsPerPixel: 0
-        ) else { return nil }
-        rep.size = target
-        NSGraphicsContext.saveGraphicsState()
-        NSGraphicsContext.current = NSGraphicsContext(bitmapImageRep: rep)
-        image.draw(in: NSRect(origin: .zero, size: target))
-        NSGraphicsContext.restoreGraphicsState()
-        return rep.representation(using: .jpeg, properties: [.compressionFactor: 0.8])
-    }
-
-    private func saveImageSync(data: Data, hash: String) -> (String, String)? {
-        let directory = ClipboardStore.defaultImagesDirectory()
-        let originalURL = directory.appendingPathComponent("\(hash).data")
-        let thumbURL = directory.appendingPathComponent("\(hash)_thumb.jpg")
-        do {
-            try data.write(to: originalURL)
-            let thumbData = Self.makeThumbnail(from: data, maxDimension: 512)
-            try thumbData?.write(to: thumbURL)
-            return (originalURL.path, thumbURL.path)
-        } catch {
-            print("保存入队图片失败: \(error)")
-            return nil
         }
     }
 
@@ -353,13 +316,7 @@ final class PanelViewModel: ObservableObject {
                 if NSApp.isActive {
                     NSApp.deactivate()
                 }
-                let pid = PasteService.frontmostPID()
-                DebugLog.write("出队注入 ⌘V：pid=\(pid ?? -1)")
-                if let pid {
-                    PasteService.injectCommandV(to: pid)
-                } else {
-                    PasteService.injectCommandV()
-                }
+                self.injectPasteToFrontmost()
             }
         }
         ToastWindowController.shared.show(
@@ -367,5 +324,48 @@ final class PanelViewModel: ObservableObject {
             message: item.previewLine,
             systemImage: "arrow.up.doc"
         )
+    }
+
+    // MARK: - 图片落盘
+
+    private func saveImageSync(data: Data, hash: String) -> (String, String)? {
+        let directory = ClipboardStore.defaultImagesDirectory()
+        let originalURL = directory.appendingPathComponent("\(hash).data")
+        let thumbURL = directory.appendingPathComponent("\(hash)_thumb.jpg")
+        do {
+            try data.write(to: originalURL)
+            let thumbData = Self.makeThumbnail(from: data, maxDimension: 512)
+            try thumbData?.write(to: thumbURL)
+            return (originalURL.path, thumbURL.path)
+        } catch {
+            print("保存入队图片失败: \(error)")
+            return nil
+        }
+    }
+
+    private static nonisolated func makeThumbnail(from data: Data, maxDimension: CGFloat) -> Data? {
+        guard let image = NSImage(data: data) else { return nil }
+        let size = image.size
+        guard size.width > 0, size.height > 0 else { return nil }
+        let scale = min(1, maxDimension / max(size.width, size.height))
+        let target = NSSize(width: size.width * scale, height: size.height * scale)
+        guard let rep = NSBitmapImageRep(
+            bitmapDataPlanes: nil,
+            pixelsWide: Int(target.width),
+            pixelsHigh: Int(target.height),
+            bitsPerSample: 8,
+            samplesPerPixel: 4,
+            hasAlpha: true,
+            isPlanar: false,
+            colorSpaceName: .calibratedRGB,
+            bytesPerRow: 0,
+            bitsPerPixel: 0
+        ) else { return nil }
+        rep.size = target
+        NSGraphicsContext.saveGraphicsState()
+        NSGraphicsContext.current = NSGraphicsContext(bitmapImageRep: rep)
+        image.draw(in: NSRect(origin: .zero, size: target))
+        NSGraphicsContext.restoreGraphicsState()
+        return rep.representation(using: .jpeg, properties: [.compressionFactor: 0.8])
     }
 }

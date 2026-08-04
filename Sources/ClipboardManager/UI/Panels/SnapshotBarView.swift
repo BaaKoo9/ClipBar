@@ -33,7 +33,7 @@ struct SnapshotBarView: View {
             Divider()
             hintBar
         }
-        .frame(minWidth: 560, maxWidth: .infinity, minHeight: 220, maxHeight: 240)
+        .frame(minWidth: 560, maxWidth: .infinity, minHeight: 260, maxHeight: 280)
         .background(.ultraThinMaterial)
         .clipShape(RoundedRectangle(cornerRadius: 20, style: .continuous))
         .overlay(
@@ -306,7 +306,7 @@ private struct SnapshotCard: View {
         VStack(alignment: .leading, spacing: 6) {
             HStack(spacing: 5) {
                 if item.kind == .image {
-                    SnapshotThumbnail(path: item.imagePath, size: 30)
+                    SnapshotThumbnail(path: item.imagePath, size: 64)
                 } else {
                     Image(systemName: iconName)
                         .font(.system(size: 11, weight: .medium))
@@ -336,7 +336,7 @@ private struct SnapshotCard: View {
 
             Text(highlightedPreview)
                 .font(.system(size: 12))
-                .lineLimit(3)
+                .lineLimit(4)
                 .foregroundStyle(isSelected ? .white : .primary)
 
             Spacer(minLength: 0)

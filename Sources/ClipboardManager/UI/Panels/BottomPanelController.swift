@@ -34,20 +34,20 @@ final class BottomPanelController: NSObject {
         }
         guard let panel else { return }
 
-        NSApp.activate(ignoringOtherApps: true)
-        panel.makeKeyAndOrderFront(nil)
-
         let screen = NSScreen.main ?? NSScreen.screens[0]
         let visible = screen.visibleFrame
         let width = visible.width - 32
-        let height: CGFloat = 240
+        let height: CGFloat = 280
         let x = visible.midX - width / 2
         let finalY = visible.minY + 16
         let startRect = NSRect(x: x, y: finalY - 36, width: width, height: height)
         let finalRect = NSRect(x: x, y: finalY, width: width, height: height)
 
+        // 先定位并隐藏，再显示，避免闪现旧位置造成拖影
         panel.setFrame(startRect, display: false)
         panel.alphaValue = 0
+        NSApp.activate(ignoringOtherApps: true)
+        panel.makeKeyAndOrderFront(nil)
 
         NSAnimationContext.runAnimationGroup { context in
             context.duration = 0.32
@@ -81,7 +81,7 @@ final class BottomPanelController: NSObject {
     private func buildPanel() {
         let hosting = NSHostingController(rootView: SnapshotBarView(viewModel: viewModel))
         let p = PanelWindow(
-            contentRect: NSRect(x: 0, y: 0, width: (NSScreen.main ?? NSScreen.screens[0]).visibleFrame.width - 32, height: 240),
+            contentRect: NSRect(x: 0, y: 0, width: (NSScreen.main ?? NSScreen.screens[0]).visibleFrame.width - 32, height: 280),
             styleMask: [.borderless],
             backing: .buffered,
             defer: false
