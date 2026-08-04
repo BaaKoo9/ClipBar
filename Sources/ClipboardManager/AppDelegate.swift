@@ -21,7 +21,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         setupPanel()
         panelViewModel.loadHistory()
         registerHotKeys()
-        requestListeningAccessIfNeeded()
+        requestPermissionsIfNeeded()
 
         NotificationCenter.default.addObserver(
             forName: .clipboardHotKeyChanged,
@@ -40,11 +40,17 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         }
     }
 
-    private func requestListeningAccessIfNeeded() {
-        guard !HotKeyService.isListeningAvailable else { return }
-        DebugLog.write("输入监控权限未授予，请求授权")
+    private func requestPermissionsIfNeeded() {
+        let hasAccessibility = HotKeyService.isAccessibilityAvailable
+        let hasListening = HotKeyService.isListeningAvailable
+        DebugLog.write("权限检查：辅助功能=\(hasAccessibility) 输入监控=\(hasListening)")
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.8) {
-            HotKeyService.requestListeningAccess()
+            if !HotKeyService.isAccessibilityAvailable {
+                HotKeyService.requestAccessibilityAccess()
+            }
+            if !HotKeyService.isListeningAvailable {
+                HotKeyService.requestListeningAccess()
+            }
         }
     }
 
@@ -103,7 +109,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         if eventType == .rightMouseUp {
             showStatusMenu(relativeTo: button)
         } else {
-            togglePanel()
+            // 左键始终呼出并聚焦面板（避免 toggle 状态错乱）
+            panelController?.show()
         }
     }
 

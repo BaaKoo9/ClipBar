@@ -30,6 +30,7 @@ final class PanelViewModel: ObservableObject {
 
     func panelDidOpen() {
         loadHistory()
+        refresh()
         if selectedID == nil {
             selectedID = items.first?.id
         }
@@ -144,19 +145,26 @@ final class PanelViewModel: ObservableObject {
     func enqueueFromClipboard() {
         let pasteboard = NSPasteboard.general
 
-        // 文本
+        // 文本：直接入队，无 IO 延迟
         if let text = pasteboard.string(forType: .string), !text.isEmpty {
-            enqueueFromHistoryOrCreate(
-                hash: Hashing.sha256Hex(text),
+            let item = ClipboardItem(
+                id: -1,
                 kind: text.hasPrefix("http://") || text.hasPrefix("https://") ? .link : .text,
                 text: text,
                 rtfPath: nil,
                 imagePath: nil,
                 originalImagePath: nil,
-                filePaths: []
+                filePaths: [],
+                hash: Hashing.sha256Hex(text),
+                pinned: false,
+                createdAt: Date(),
+                updatedAt: Date()
             )
+            pasteQueue.append(item)
+            showEnqueueToast(item)
             return
         }
+
 
         // 图片
         if let imageData = pasteboard.data(forType: .png) ?? pasteboard.data(forType: .tiff) {
