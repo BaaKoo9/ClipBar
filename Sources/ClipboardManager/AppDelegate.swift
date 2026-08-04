@@ -30,11 +30,26 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate {
 
     private func registerHotKey() {
         let settings = AppSettings.shared
-        HotKeyService.shared.register(
+        let ok = HotKeyService.shared.register(
             keyCode: settings.hotKeyCode,
             modifiers: settings.hotKeyModifiers
         ) { [weak self] in
             self?.togglePanel(nil)
+        }
+        let desc = KeyCodeMapper.displayString(keyCode: settings.hotKeyCode, modifiers: settings.hotKeyModifiers)
+        Self.appendLog("全局快捷键 \(desc) 注册\(ok ? "成功" : "失败")")
+    }
+
+    private static func appendLog(_ message: String) {
+        let dir = ClipboardStore.defaultDBURL().deletingLastPathComponent()
+        let url = dir.appendingPathComponent("debug.log")
+        let line = "\(Date()) \(message)\n"
+        if let handle = try? FileHandle(forWritingTo: url) {
+            handle.seekToEndOfFile()
+            handle.write(line.data(using: .utf8)!)
+            try? handle.close()
+        } else {
+            try? line.data(using: .utf8)?.write(to: url)
         }
     }
 
@@ -111,7 +126,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate {
         popover = pop
     }
 
-    @objc private func togglePanel(_ sender: Any?) {
+     private func togglePanel(_ sender: Any?) {
+        Self.appendLog("面板切换触发")
         guard let popover, let button = statusItem?.button else { return }
         if popover.isShown {
             popover.performClose(sender)

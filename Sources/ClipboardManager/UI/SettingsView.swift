@@ -122,6 +122,9 @@ struct SettingsView: View {
 
             let flags = event.modifierFlags.intersection([.command, .option, .control, .shift])
             guard !flags.isEmpty else { return nil } // 纯字母键无效，继续等待
+            // 排除导航键与编辑键，避免误录（方向键、Home/End/翻页、Esc/Return/Tab）
+            let blockedKeyCodes: Set<Int> = [48, 53, 36, 115, 116, 117, 119, 121, 123, 124, 125, 126]
+            guard !blockedKeyCodes.contains(Int(event.keyCode)) else { return nil }
 
             let settings = AppSettings.shared
             settings.hotKeyCode = Int(event.keyCode)
