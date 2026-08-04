@@ -300,21 +300,20 @@ private struct SnapshotCard: View {
     let isSelected: Bool
     let highlight: String
     var onEnqueue: () -> Void
-@State private var isHovering = false
+    @State private var isHovering = false
 
     var body: some View {
         VStack(alignment: .leading, spacing: 6) {
+            // 顶部行：类型标记 + 置顶 + 入队按钮
             HStack(spacing: 5) {
-                if item.kind == .image {
-                    SnapshotThumbnail(path: item.imagePath, size: 64)
-                } else {
+                if item.kind != .image {
                     Image(systemName: iconName)
                         .font(.system(size: 11, weight: .medium))
                         .foregroundStyle(isSelected ? .white : Color.secondary)
+                    Text(typeLabel)
+                        .font(.system(size: 10, weight: .medium))
+                        .foregroundStyle(isSelected ? Color.white.opacity(0.85) : Color.secondary)
                 }
-                Text(typeLabel)
-                    .font(.system(size: 10, weight: .medium))
-                    .foregroundStyle(isSelected ? Color.white.opacity(0.85) : Color.secondary)
                 Spacer(minLength: 0)
                 if item.pinned {
                     Image(systemName: "pin.fill")
@@ -334,12 +333,19 @@ private struct SnapshotCard: View {
                 }
             }
 
-            Text(highlightedPreview)
-                .font(.system(size: 12))
-                .lineLimit(4)
-                .foregroundStyle(isSelected ? .white : .primary)
-
-            Spacer(minLength: 0)
+            if item.kind == .image {
+                // 图片：主体铺满缩略图，不再重复显示“图片”文字
+                Spacer(minLength: 0)
+                SnapshotThumbnail(path: item.imagePath, size: 96)
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+                Spacer(minLength: 0)
+            } else {
+                Text(highlightedPreview)
+                    .font(.system(size: 12))
+                    .lineLimit(4)
+                    .foregroundStyle(isSelected ? .white : .primary)
+                Spacer(minLength: 0)
+            }
         }
         .padding(10)
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
@@ -408,19 +414,19 @@ private struct SnapshotThumbnail: View {
             if let image {
                 Image(nsImage: image)
                     .resizable()
-                    .aspectRatio(contentMode: .fill)
+                    .aspectRatio(contentMode: .fit)
             } else {
                 RoundedRectangle(cornerRadius: 7)
                     .fill(Color.primary.opacity(0.08))
                     .overlay {
                         Image(systemName: "photo")
-                            .font(.system(size: 10))
+                            .font(.system(size: 14))
                             .foregroundStyle(.tertiary)
                     }
             }
         }
-        .frame(width: size, height: size)
-        .clipShape(RoundedRectangle(cornerRadius: 7))
+        .frame(minWidth: size, idealWidth: 96, maxWidth: .infinity, minHeight: size, idealHeight: 96, maxHeight: .infinity)
+        .clipShape(RoundedRectangle(cornerRadius: 8))
         .task(id: path) {
             guard let path else { return }
             if let cached = Self.cache.object(forKey: path as NSString) {

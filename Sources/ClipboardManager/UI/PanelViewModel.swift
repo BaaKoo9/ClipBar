@@ -17,7 +17,13 @@ final class PanelViewModel: ObservableObject {
     /// AppDelegate 注入：请求打开独立设置窗口。
     var onOpenSettings: (() -> Void)?
 
+    /// 面板显示前调用：记住当前前台 App（呼出前一刻），粘贴时定向注入到它。
+    func panelWillOpen(from pid: pid_t?) {
+        targetPID = pid
+    }
+
     private var loaded = false
+    private var targetPID: pid_t?
     private let enqueueQueue = DispatchQueue(label: "com.huxiaolong.clipboard.enqueue")
 
     // MARK: - 生命周期
@@ -103,21 +109,22 @@ final class PanelViewModel: ObservableObject {
                 if NSApp.isActive {
                     NSApp.deactivate()
                 }
-                self.injectPasteToFrontmost()
+                self.injectPaste(to: self.targetPID)
             }
         }
     }
 
     /// 激活前台目标并注入 ⌘V：先激活目标 App，稍等其获得焦点，再用系统级事件注入（对 Electron 类 App 更兼容）。
-    private func injectPasteToFrontmost() {
-        if let pid = PasteService.frontmostPID() {
-            let appName = PasteService.activateApp(pid: pid)
-            DebugLog.write("注入 ⌘V：pid=\(pid) app=\(appName ?? "未知")")
-            DispatchQueue.main.asyncAfter(deadline: .now() + 0.15) {
-                PasteService.injectCommandV()
-            }
-        } else {
-            DebugLog.write("注入 ⌘V：未找到前台 App，系统级注入")
+    /// 注入 ⌘V 到指定 App：先激活，稍等焦点，再用系统级事件注入（对 Electron 类 App 更兼容）。
+    private func injectPaste(to pid: pid_t?) {
+        guard let pid else {
+            DebugLog.write("注入 ⌘V：无目标 App，系统级注入")
+            PasteService.injectCommandV()
+            return
+        }
+        let appName = PasteService.activateApp(pid: pid)
+        DebugLog.write("注入 ⌘V：pid=\(pid) app=\(appName ?? "未知")")
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.2) {
             PasteService.injectCommandV()
         }
     }
@@ -316,7 +323,7 @@ final class PanelViewModel: ObservableObject {
                 if NSApp.isActive {
                     NSApp.deactivate()
                 }
-                self.injectPasteToFrontmost()
+                self.injectPaste(to: PasteService.frontmostPID())
             }
         }
         ToastWindowController.shared.show(

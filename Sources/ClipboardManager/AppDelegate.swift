@@ -176,6 +176,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
 
     private func setupPanel() {
         let controller = BottomPanelController(viewModel: panelViewModel)
+        controller.prepare()
         panelController = controller
 
         // 面板内齿轮 → 独立设置窗口

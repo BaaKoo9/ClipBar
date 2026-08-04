@@ -24,6 +24,13 @@ final class BottomPanelController: NSObject {
 
     var isShown: Bool { panel?.isVisible ?? false }
 
+    /// 启动时预构建并隐藏面板，呼出时零布局延迟。
+    func prepare() {
+        guard panel == nil else { return }
+        buildPanel()
+        panel?.orderOut(nil)
+    }
+
     func toggle() {
         isShown ? hide() : show()
     }
@@ -34,13 +41,17 @@ final class BottomPanelController: NSObject {
         }
         guard let panel else { return }
 
+        // 在激活自己之前记住当前前台 App，粘贴时定向注入到它
+        let sourcePID = NSWorkspace.shared.frontmostApplication?.processIdentifier
+        viewModel.panelWillOpen(from: sourcePID)
+
         let screen = NSScreen.main ?? NSScreen.screens[0]
         let visible = screen.visibleFrame
         let width = visible.width - 32
         let height: CGFloat = 280
         let x = visible.midX - width / 2
         let finalY = visible.minY + 16
-        let startRect = NSRect(x: x, y: finalY - 36, width: width, height: height)
+        let startRect = NSRect(x: x, y: finalY - 28, width: width, height: height)
         let finalRect = NSRect(x: x, y: finalY, width: width, height: height)
 
         // 先定位并隐藏，再显示，避免闪现旧位置造成拖影
@@ -50,7 +61,7 @@ final class BottomPanelController: NSObject {
         panel.makeKeyAndOrderFront(nil)
 
         NSAnimationContext.runAnimationGroup { context in
-            context.duration = 0.32
+            context.duration = 0.22
             context.timingFunction = CAMediaTimingFunction(name: .easeOut)
             panel.animator().setFrame(finalRect, display: true)
             panel.animator().alphaValue = 1
@@ -70,7 +81,7 @@ final class BottomPanelController: NSObject {
         }
         if animated {
             NSAnimationContext.runAnimationGroup({ context in
-                context.duration = 0.2
+                context.duration = 0.15
                 panel.animator().alphaValue = 0
             }, completionHandler: finish)
         } else {
