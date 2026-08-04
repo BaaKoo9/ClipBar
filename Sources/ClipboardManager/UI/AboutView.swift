@@ -5,6 +5,24 @@ import SwiftUI
 struct AboutView: View {
     var body: some View {
         VStack(spacing: 14) {
+            // 标题栏
+            HStack {
+                Spacer()
+                Button {
+                    NSApp.keyWindow?.close()
+                } label: {
+                    Image(systemName: "xmark")
+                        .font(.system(size: 11, weight: .semibold))
+                        .foregroundStyle(.secondary)
+                        .frame(width: 26, height: 26)
+                        .background(Color.primary.opacity(0.06), in: Circle())
+                }
+                .buttonStyle(.plain)
+                .help("关闭")
+            }
+            .padding(.horizontal, 14)
+            .padding(.top, 12)
+
             // 图标
             ZStack {
                 RoundedRectangle(cornerRadius: 28, style: .continuous)
@@ -67,7 +85,7 @@ struct AboutView: View {
                 .font(.system(size: 10))
                 .foregroundStyle(.tertiary)
         }
-        .padding(.vertical, 24)
+        .padding(.bottom, 20)
         .frame(width: 420, height: 480)
         .background(.regularMaterial)
         .clipShape(RoundedRectangle(cornerRadius: 20, style: .continuous))
@@ -78,9 +96,6 @@ struct AboutView: View {
     }
 
     private var versionString: String {
-        let bundle = Bundle.main
-        let version = bundle.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "1.0.0"
-        let build = bundle.object(forInfoDictionaryKey: "CFBundleVersion") as? String ?? "1"
-        return "\(version) (\(build))"
+        Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "1.0.1"
     }
 }

@@ -73,7 +73,7 @@ final class BottomPanelController: NSObject {
         }
 
         NSAnimationContext.runAnimationGroup { context in
-            context.duration = 0.22
+            context.duration = 0.15
             context.timingFunction = CAMediaTimingFunction(name: .easeOut)
             panel.animator().setFrame(finalRect, display: true)
             panel.animator().alphaValue = 1

@@ -105,7 +105,7 @@ final class PanelViewModel: ObservableObject {
         }
         onRequestClose?()
         if AppSettings.shared.autoPasteEnabled, PasteService.hasAccessibilityPermission {
-            DispatchQueue.main.asyncAfter(deadline: .now() + 0.35) {
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.2) {
                 if NSApp.isActive {
                     NSApp.deactivate()
                 }
@@ -131,7 +131,7 @@ final class PanelViewModel: ObservableObject {
         }
         let appName = PasteService.activateApp(pid: pid)
         DebugLog.write("注入 ⌘V：pid=\(pid) app=\(appName ?? "未知")")
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.2) {
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.12) {
             PasteService.injectCommandV()
         }
     }
@@ -203,7 +203,7 @@ final class PanelViewModel: ObservableObject {
             }
             return
         }
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) { [weak self] in
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.05) { [weak self] in
             guard let self else { return }
             if NSPasteboard.general.changeCount != before {
                 self.enqueueQueue.async { self.performEnqueueFromClipboard() }
@@ -324,7 +324,7 @@ final class PanelViewModel: ObservableObject {
         }
         if PasteService.hasAccessibilityPermission {
             // 出队语义 = 粘贴：有权限就注入，不依赖自动粘贴开关
-            DispatchQueue.main.asyncAfter(deadline: .now() + 0.25) {
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.12) {
                 if NSApp.isActive {
                     NSApp.deactivate()
                 }

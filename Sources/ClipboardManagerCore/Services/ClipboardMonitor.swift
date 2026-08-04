@@ -20,7 +20,7 @@ public final class ClipboardMonitor {
     public func start() {
         guard timer == nil else { return }
         lastChangeCount = pasteboard.changeCount
-        let timer = Timer(timeInterval: 0.15, repeats: true) { [weak self] _ in
+        let timer = Timer(timeInterval: 0.08, repeats: true) { [weak self] _ in
             MainActor.assumeIsolated { self?.poll() }
         }
         RunLoop.main.add(timer, forMode: .common)

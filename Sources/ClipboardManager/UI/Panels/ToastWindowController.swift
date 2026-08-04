@@ -58,14 +58,14 @@ final class ToastWindowController {
         panel.alphaValue = 0
         panel.orderFrontRegardless()
         NSAnimationContext.runAnimationGroup { context in
-            context.duration = 0.25
+            context.duration = 0.125
             panel.animator().alphaValue = 1
         }
 
         let task = DispatchWorkItem { [weak self] in
             guard let self else { return }
             NSAnimationContext.runAnimationGroup({ context in
-                context.duration = 0.25
+                context.duration = 0.125
                 self.window?.animator().alphaValue = 0
             }) {
                 self.window?.orderOut(nil)
@@ -126,7 +126,7 @@ final class ToastWindowController {
         panel.alphaValue = 0
         panel.orderFrontRegardless()
         NSAnimationContext.runAnimationGroup { context in
-            context.duration = 0.2
+            context.duration = 0.12
             panel.animator().alphaValue = 1
         }
     }
@@ -141,7 +141,7 @@ final class ToastWindowController {
             return
         }
         NSAnimationContext.runAnimationGroup({ context in
-            context.duration = 0.2
+            context.duration = 0.12
             queueWindow.animator().alphaValue = 0
         }) { [weak self] in
             queueWindow.orderOut(nil)
