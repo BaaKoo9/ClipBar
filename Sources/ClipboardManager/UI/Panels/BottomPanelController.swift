@@ -39,7 +39,7 @@ final class BottomPanelController: NSObject {
 
         let screen = NSScreen.main ?? NSScreen.screens[0]
         let visible = screen.visibleFrame
-        let width = min(860, visible.width - 72)
+        let width = visible.width - 32
         let height: CGFloat = 214
         let x = visible.midX - width / 2
         let finalY = visible.minY + 16
@@ -81,7 +81,7 @@ final class BottomPanelController: NSObject {
     private func buildPanel() {
         let hosting = NSHostingController(rootView: SnapshotBarView(viewModel: viewModel))
         let p = NSPanel(
-            contentRect: NSRect(x: 0, y: 0, width: min(860, (NSScreen.main ?? NSScreen.screens[0]).visibleFrame.width - 72), height: 214),
+            contentRect: NSRect(x: 0, y: 0, width: (NSScreen.main ?? NSScreen.screens[0]).visibleFrame.width - 32, height: 214),
             styleMask: [.borderless],
             backing: .buffered,
             defer: false

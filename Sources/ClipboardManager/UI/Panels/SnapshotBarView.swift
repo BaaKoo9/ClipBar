@@ -138,57 +138,67 @@ struct SnapshotBarView: View {
     // MARK: - 快照卡片
 
     private var snapshotScroller: some View {
-        ScrollViewReader { proxy in
-            ScrollView(.horizontal, showsIndicators: false) {
-                LazyHStack(spacing: 10) {
-                    ForEach(viewModel.items) { item in
-                        SnapshotCard(
-                            item: item,
-                            isSelected: item.id == viewModel.selectedID,
-                            highlight: viewModel.searchText.trimmingCharacters(in: .whitespacesAndNewlines)
-                        )
-                        .frame(width: 210, height: 108)
-                        .contentShape(Rectangle())
-                        .onTapGesture {
-                            viewModel.selectedID = item.id
-                        }
-                        .contextMenu {
-                            if item.kind == .link, let text = item.text, let url = URL(string: text) {
-                                Button("打开链接") {
-                                    NSWorkspace.shared.open(url)
-                                }
-                            }
-                            if item.kind == .file, let first = item.filePaths.first {
-                                Button("在 Finder 中显示") {
-                                    NSWorkspace.shared.activateFileViewerSelecting([URL(fileURLWithPath: first)])
-                                }
-                            }
-                            Button(item.pinned ? "取消置顶" : "置顶") {
-                                viewModel.togglePin(item)
-                            }
-                            Button("加入粘贴队列") {
+        GeometryReader { geo in
+            ScrollViewReader { proxy in
+                ScrollView(.horizontal, showsIndicators: false) {
+                    LazyHStack(spacing: 10) {
+                        ForEach(viewModel.items) { item in
+                            SnapshotCard(
+                                item: item,
+                                isSelected: item.id == viewModel.selectedID,
+                                highlight: viewModel.searchText.trimmingCharacters(in: .whitespacesAndNewlines)
+                            )
+                            .frame(width: Self.cardWidth(for: geo.size.width, count: viewModel.items.count), height: 108)
+                            .contentShape(Rectangle())
+                            .onTapGesture {
                                 viewModel.selectedID = item.id
-                                viewModel.enqueueSelected()
                             }
-                            Button("粘贴") {
-                                viewModel.selectedID = item.id
-                                viewModel.pasteSelected()
-                            }
-                            Button("删除", role: .destructive) {
-                                viewModel.deleteItem(item)
+                            .contextMenu {
+                                if item.kind == .link, let text = item.text, let url = URL(string: text) {
+                                    Button("打开链接") {
+                                        NSWorkspace.shared.open(url)
+                                    }
+                                }
+                                if item.kind == .file, let first = item.filePaths.first {
+                                    Button("在 Finder 中显示") {
+                                        NSWorkspace.shared.activateFileViewerSelecting([URL(fileURLWithPath: first)])
+                                    }
+                                }
+                                Button(item.pinned ? "取消置顶" : "置顶") {
+                                    viewModel.togglePin(item)
+                                }
+                                Button("加入粘贴队列") {
+                                    viewModel.selectedID = item.id
+                                    viewModel.enqueueSelected()
+                                }
+                                Button("粘贴") {
+                                    viewModel.selectedID = item.id
+                                    viewModel.pasteSelected()
+                                }
+                                Button("删除", role: .destructive) {
+                                    viewModel.deleteItem(item)
+                                }
                             }
                         }
                     }
+                    .padding(.horizontal, 14)
+                    .padding(.vertical, 4)
                 }
-                .padding(.horizontal, 14)
-                .padding(.vertical, 4)
-            }
-            .onChange(of: viewModel.scrollRequestID) { _, newID in
-                if let newID {
-                    proxy.scrollTo(newID, anchor: .center)
+                .onChange(of: viewModel.scrollRequestID) { _, newID in
+                    if let newID {
+                        proxy.scrollTo(newID, anchor: .center)
+                    }
                 }
             }
         }
+    }
+
+    /// 卡片宽度：条目少时摊宽铺满，条目多时收敛到最小宽度横向滚动。
+    private static func cardWidth(for total: CGFloat, count: Int) -> CGFloat {
+        let safeCount = max(count, 1)
+        let gaps = CGFloat(safeCount - 1) * 10
+        let natural = (total - 28 - gaps) / CGFloat(safeCount)
+        return min(max(natural, 140), 260)
     }
 
     // MARK: - 队列条

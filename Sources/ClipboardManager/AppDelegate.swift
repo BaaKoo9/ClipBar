@@ -6,6 +6,7 @@ import SwiftUI
 final class AppDelegate: NSObject, NSApplicationDelegate {
     private var statusItem: NSStatusItem?
     private var panelController: BottomPanelController?
+    private var settingsWindow: NSWindow?
 
     private var panelViewModel = PanelViewModel()
 
@@ -42,7 +43,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     private func requestListeningAccessIfNeeded() {
         guard !HotKeyService.isListeningAvailable else { return }
-        // 首次启动弹出系统授权提示
+        DebugLog.write("输入监控权限未授予，请求授权")
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.8) {
             HotKeyService.requestListeningAccess()
         }
@@ -53,45 +54,31 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private func registerHotKeys() {
         let settings = AppSettings.shared
 
-        let mainOK = HotKeyService.shared.register(
+        HotKeyService.shared.register(
             tag: Self.mainHotKeyTag,
             keyCode: settings.hotKeyCode,
             modifiers: settings.hotKeyModifiers
         ) { [weak self] in
             self?.togglePanel()
         }
-        Self.appendLog("呼出 \(KeyCodeMapper.displayString(keyCode: settings.hotKeyCode, modifiers: settings.hotKeyModifiers))：\(mainOK ? "成功" : "失败")")
 
-        let enqueueOK = HotKeyService.shared.register(
+        HotKeyService.shared.register(
             tag: Self.enqueueHotKeyTag,
             keyCode: settings.enqueueHotKeyCode,
             modifiers: settings.enqueueHotKeyModifiers
         ) { [weak self] in
             self?.panelViewModel.enqueueFromClipboard()
         }
-        Self.appendLog("入队 \(KeyCodeMapper.displayString(keyCode: settings.enqueueHotKeyCode, modifiers: settings.enqueueHotKeyModifiers))：\(enqueueOK ? "成功" : "失败")")
 
-        let dequeueOK = HotKeyService.shared.register(
+        HotKeyService.shared.register(
             tag: Self.dequeueHotKeyTag,
             keyCode: settings.dequeueHotKeyCode,
             modifiers: settings.dequeueHotKeyModifiers
         ) { [weak self] in
             self?.panelViewModel.dequeueAndPaste()
         }
-        Self.appendLog("出队 \(KeyCodeMapper.displayString(keyCode: settings.dequeueHotKeyCode, modifiers: settings.dequeueHotKeyModifiers))：\(dequeueOK ? "成功" : "失败")")
-    }
 
-    static func appendLog(_ message: String) {
-        let dir = ClipboardStore.defaultDBURL().deletingLastPathComponent()
-        let url = dir.appendingPathComponent("debug.log")
-        let line = "\(Date()) \(message)\n"
-        if let handle = try? FileHandle(forWritingTo: url) {
-            handle.seekToEndOfFile()
-            handle.write(line.data(using: .utf8)!)
-            try? handle.close()
-        } else {
-            try? line.data(using: .utf8)?.write(to: url)
-        }
+        DebugLog.write("快捷键注册完成：呼出 \(KeyCodeMapper.displayString(keyCode: settings.hotKeyCode, modifiers: settings.hotKeyModifiers)) / 入队 \(KeyCodeMapper.displayString(keyCode: settings.enqueueHotKeyCode, modifiers: settings.enqueueHotKeyModifiers)) / 出队 \(KeyCodeMapper.displayString(keyCode: settings.dequeueHotKeyCode, modifiers: settings.dequeueHotKeyModifiers))")
     }
 
     // MARK: - Status item
@@ -143,12 +130,32 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     @objc private func openSettings(_ sender: Any?) {
-        panelController?.show()
-        panelViewModel.openSettings()
+        showSettingsWindow()
     }
 
     @objc private func quitApp(_ sender: Any?) {
         NSApp.terminate(nil)
+    }
+
+    // MARK: - 设置窗口
+
+    private func showSettingsWindow() {
+        if settingsWindow == nil {
+            let hosting = NSHostingController(rootView: SettingsView(viewModel: panelViewModel))
+            let window = NSWindow(
+                contentRect: NSRect(x: 0, y: 0, width: 480, height: 560),
+                styleMask: [.titled, .closable],
+                backing: .buffered,
+                defer: false
+            )
+            window.title = "Clipboard Manager 设置"
+            window.contentViewController = hosting
+            window.center()
+            window.isReleasedWhenClosed = false
+            settingsWindow = window
+        }
+        NSApp.activate(ignoringOtherApps: true)
+        settingsWindow?.makeKeyAndOrderFront(nil)
     }
 
     // MARK: - 底部面板
@@ -159,7 +166,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     @objc private func togglePanel() {
-        Self.appendLog("面板切换触发")
+        DebugLog.write("面板切换触发")
         panelController?.toggle()
     }
 }

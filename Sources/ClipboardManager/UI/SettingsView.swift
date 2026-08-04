@@ -36,10 +36,6 @@ struct SettingsView: View {
 
     var body: some View {
         VStack(spacing: 0) {
-            header
-
-            Divider()
-
             ScrollView {
                 VStack(alignment: .leading, spacing: 18) {
                     shortcutSection
@@ -163,11 +159,12 @@ struct SettingsView: View {
                 Text("历史条数上限")
                 Spacer()
                 Picker("", selection: $historyLimit) {
+                    Text("100").tag(100)
+                    Text("300").tag(300)
+                    Text("500").tag(500)
                     Text("1,000").tag(1000)
+                    Text("2,000").tag(2000)
                     Text("3,000").tag(3000)
-                    Text("5,000").tag(5000)
-                    Text("10,000").tag(10000)
-                    Text("20,000").tag(20000)
                 }
                 .labelsHidden()
                 .frame(width: 110)

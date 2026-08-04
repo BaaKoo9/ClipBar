@@ -24,7 +24,7 @@ public final class AppSettings {
     public var historyLimit: Int {
         get {
             let value = defaults.integer(forKey: Keys.historyLimit)
-            return value > 0 ? value : 5000
+            return value > 0 ? value : 2000
         }
         set { defaults.set(newValue, forKey: Keys.historyLimit) }
     }
