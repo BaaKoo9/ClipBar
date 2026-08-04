@@ -111,6 +111,13 @@ final class PanelViewModel: ObservableObject {
                 }
                 self.injectPaste(to: self.targetPID)
             }
+        } else if !PasteService.hasAccessibilityPermission {
+            DebugLog.write("粘贴：无辅助功能权限，仅写回剪贴板")
+            ToastWindowController.shared.show(
+                title: "已写入剪贴板",
+                message: "未授权辅助功能，请手动 ⌘V；可在设置中开启",
+                systemImage: "exclamationmark.triangle"
+            )
         }
     }
 
@@ -315,13 +322,21 @@ final class PanelViewModel: ObservableObject {
         if let hash = PasteService.shared.writeToPasteboard(item) {
             ClipboardMonitor.shared.ignore(hash: hash)
         }
-        if AppSettings.shared.autoPasteEnabled, PasteService.hasAccessibilityPermission {
+        if PasteService.hasAccessibilityPermission {
+            // 出队语义 = 粘贴：有权限就注入，不依赖自动粘贴开关
             DispatchQueue.main.asyncAfter(deadline: .now() + 0.25) {
                 if NSApp.isActive {
                     NSApp.deactivate()
                 }
                 self.injectPaste(to: PasteService.frontmostPID())
             }
+        } else {
+            DebugLog.write("出队：无辅助功能权限，仅写回剪贴板")
+            ToastWindowController.shared.show(
+                title: "已写入剪贴板",
+                message: "未授权辅助功能，请手动 ⌘V；可在设置中开启",
+                systemImage: "exclamationmark.triangle"
+            )
         }
         if pasteQueue.isEmpty {
             ToastWindowController.shared.hideQueue()

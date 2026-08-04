@@ -37,7 +37,7 @@ public final class AppSettings {
 
     /// 从历史粘贴时是否自动注入 ⌘V。
     public var autoPasteEnabled: Bool {
-        get { defaults.bool(forKey: Keys.autoPasteEnabled) }
+        get { defaults.object(forKey: Keys.autoPasteEnabled) as? Bool ?? true }
         set { defaults.set(newValue, forKey: Keys.autoPasteEnabled) }
     }
 
