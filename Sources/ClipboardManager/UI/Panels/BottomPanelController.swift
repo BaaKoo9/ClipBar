@@ -46,9 +46,9 @@ final class BottomPanelController: NSObject {
         let sourcePID = NSWorkspace.shared.frontmostApplication?.processIdentifier
         viewModel.panelWillOpen(from: sourcePID)
 
-        let screen = NSScreen.main ?? NSScreen.screens[0]
+        let screen = ScreenHelper.activeScreen
         let visible = screen.visibleFrame
-        DebugLog.write("show 面板 screen=\(screen.frame) visible=\(visible.frame)")
+        DebugLog.write("show 面板 screen=\(NSStringFromRect(screen.frame)) visible=\(NSStringFromRect(visible))")
         let width = visible.width - 32
         let height: CGFloat = 280
         let x = visible.midX - width / 2
@@ -61,9 +61,15 @@ final class BottomPanelController: NSObject {
         panel.alphaValue = 0
         NSApp.activate(ignoringOtherApps: true)
         panel.makeKeyAndOrderFront(nil)
-        // 防御：首次显示偶发失败时强制置前
+        // 防御：首次显示偶发失败时强制置前，并延迟复查重试
         if !panel.isVisible {
             panel.orderFrontRegardless()
+        }
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) { [weak self] in
+            guard let self, let panel = self.panel, !panel.isVisible else { return }
+            DebugLog.write("面板首显失败，重试")
+            panel.orderFrontRegardless()
+            panel.makeKeyAndOrderFront(nil)
         }
 
         NSAnimationContext.runAnimationGroup { context in

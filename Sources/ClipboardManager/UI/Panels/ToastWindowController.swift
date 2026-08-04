@@ -47,10 +47,9 @@ final class ToastWindowController {
         panel.collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary]
         panel.isReleasedWhenClosed = false
 
-        if let screen = NSScreen.main {
-            let visible = screen.visibleFrame
-            panel.setFrameOrigin(NSPoint(x: visible.maxX - 300 - 20, y: visible.midY - CGFloat(height) / 2))
-        }
+        let screen = ScreenHelper.activeScreen
+        let visible = screen.visibleFrame
+        panel.setFrameOrigin(NSPoint(x: visible.maxX - 300 - 20, y: visible.midY - CGFloat(height) / 2))
 
         window = panel
         panel.alphaValue = 0
@@ -82,7 +81,9 @@ final class ToastWindowController {
         queueHideTask?.cancel()
 
         // 每次重建内容并替换，确保实时刷新
-        let hosting = NSHostingController(rootView: QueueListView(items: items))
+        let hosting = NSHostingController(rootView: QueueListView(items: items, onClose: { [weak self] in
+            self?.hideQueue()
+        }))
         if let queueWindow {
             queueWindow.contentViewController = hosting
             queueWindow.makeKeyAndOrderFront(nil)
@@ -105,10 +106,9 @@ final class ToastWindowController {
         panel.collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary]
         panel.isReleasedWhenClosed = false
 
-        if let screen = NSScreen.main {
-            let visible = screen.visibleFrame
-            panel.setFrameOrigin(NSPoint(x: visible.maxX - 300 - 20, y: visible.maxY - 340))
-        }
+        let screen = ScreenHelper.activeScreen
+        let visible = screen.visibleFrame
+        panel.setFrameOrigin(NSPoint(x: visible.maxX - 300 - 20, y: visible.maxY - 340))
 
         queueWindow = panel
         queueHosting = hosting
@@ -180,6 +180,7 @@ private struct ToastView: View {
 
 private struct QueueListView: View {
     let items: [ClipboardItem]
+    var onClose: () -> Void
 
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
