@@ -152,10 +152,34 @@ final class PanelViewModel: ObservableObject {
     /// 入队串行队列：保证快捷键入队顺序与用户操作一致（图片处理是异步的，不串行会乱序）。
     private let enqueueQueue = DispatchQueue(label: "com.huxiaolong.clipboard.enqueue")
 
-    /// 全局快捷键：把当前系统剪贴板内容加入队列。
+    /// 全局快捷键：模拟普通复制（⌘C）后再把新剪贴板内容加入队列。
     func enqueueFromClipboard() {
-        enqueueQueue.async { [weak self] in
-            self?.performEnqueueFromClipboard()
+        guard PasteService.hasAccessibilityPermission else {
+            // 无辅助功能权限时退回：入队当前剪贴板
+            enqueueQueue.async { [weak self] in
+                self?.performEnqueueFromClipboard()
+            }
+            return
+        }
+        let before = NSPasteboard.general.changeCount
+        PasteService.injectCommandC()
+        waitForPasteboardChange(before: before, retries: 10)
+    }
+
+    private func waitForPasteboardChange(before: Int, retries: Int) {
+        guard retries > 0 else {
+            enqueueQueue.async { [weak self] in
+                self?.performEnqueueFromClipboard()
+            }
+            return
+        }
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) { [weak self] in
+            guard let self else { return }
+            if NSPasteboard.general.changeCount != before {
+                self.enqueueQueue.async { self.performEnqueueFromClipboard() }
+            } else {
+                self.waitForPasteboardChange(before: before, retries: retries - 1)
+            }
         }
     }
 

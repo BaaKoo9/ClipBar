@@ -41,6 +41,17 @@ public final class PasteService {
         }
     }
 
+    /// 模拟 ⌘C：把当前选中内容复制到剪贴板（入队复制前置）。
+    public static func injectCommandC() {
+        let source = CGEventSource(stateID: .hidSystemState)
+        let down = CGEvent(keyboardEventSource: source, virtualKey: 8, keyDown: true)
+        down?.flags = .maskCommand
+        down?.post(tap: .cghidEventTap)
+        let up = CGEvent(keyboardEventSource: source, virtualKey: 8, keyDown: false)
+        up?.flags = .maskCommand
+        up?.post(tap: .cghidEventTap)
+    }
+
     /// 模拟 ⌘V 注入粘贴（需要辅助功能权限）。
     public static func injectCommandV() {
         let source = CGEventSource(stateID: .hidSystemState)
