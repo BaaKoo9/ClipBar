@@ -24,6 +24,7 @@ cp "$ROOT/.build/$CONFIG/ClipboardManager" "$APP_DIR/Contents/MacOS/"
 cp "$ROOT/Resources/Info.plist" "$APP_DIR/Contents/Info.plist"
 cp "$ROOT/Resources/AppIcon.icns" "$APP_DIR/Contents/Resources/"
 
+security unlock-keychain -p "" "$HOME/Library/Keychains/clipboard-dev.keychain-db" 2>/dev/null || true
 if security find-identity -p codesigning 2>/dev/null | grep -q "Clipboard Manager Dev"; then
     codesign --force --deep --sign "Clipboard Manager Dev" "$APP_DIR"
 else

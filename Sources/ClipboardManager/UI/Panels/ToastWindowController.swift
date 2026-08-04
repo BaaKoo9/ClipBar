@@ -189,6 +189,18 @@ private struct QueueListView: View {
                     .font(.system(size: 13, weight: .semibold))
                     .foregroundStyle(Color.accentColor)
                 Text("待粘贴队列（\(items.count)）")
+                Text("待粘贴队列（\(items.count)）")
+                    .font(.system(size: 12, weight: .semibold))
+                Spacer()
+                Button(action: onClose) {
+                    Image(systemName: "xmark")
+                        .font(.system(size: 10, weight: .semibold))
+                        .foregroundStyle(.secondary)
+                        .frame(width: 22, height: 22)
+                        .background(Color.primary.opacity(0.06), in: Circle())
+                }
+                .buttonStyle(.plain)
+                .help("关闭队列提示")
                     .font(.system(size: 12, weight: .semibold))
                 Spacer()
             }
