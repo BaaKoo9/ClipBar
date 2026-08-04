@@ -93,13 +93,20 @@ final class PanelViewModel: ObservableObject {
 
     func pasteSelected() {
         guard let item = selectedItem else { return }
+        DebugLog.write("回车粘贴: \(item.kind.rawValue) \(item.previewLine.prefix(20))")
         if let hash = PasteService.shared.writeToPasteboard(item) {
             ClipboardMonitor.shared.ignore(hash: hash)
         }
-        if AppSettings.shared.autoPasteEnabled, PasteService.hasAccessibilityPermission {
-            PasteService.injectCommandV()
-        }
         onRequestClose?()
+        if AppSettings.shared.autoPasteEnabled, PasteService.hasAccessibilityPermission {
+            // 等面板完全关闭、焦点回到目标 App 后再注入 ⌘V
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.35) {
+                if NSApp.isActive {
+                    NSApp.deactivate()
+                }
+                PasteService.injectCommandV()
+            }
+        }
     }
 
     func togglePin(_ item: ClipboardItem) {
@@ -126,9 +133,10 @@ final class PanelViewModel: ObservableObject {
 
     // MARK: - 粘贴队列
 
-    /// 面板内 ⌘+回车：把当前选中项加入队列。
+    /// 面板内 ⌘+点击/⌘+回车：把当前选中项加入队列。
     func enqueueSelected() {
         guard let item = selectedItem else { return }
+        DebugLog.write("面板入队: \(item.kind.rawValue) \(item.previewLine.prefix(20)) count=\(pasteQueue.count + 1)")
         pasteQueue.append(item)
         ToastWindowController.shared.show(
             title: "已入队（\(pasteQueue.count)）",
@@ -306,7 +314,12 @@ final class PanelViewModel: ObservableObject {
             ClipboardMonitor.shared.ignore(hash: hash)
         }
         if AppSettings.shared.autoPasteEnabled, PasteService.hasAccessibilityPermission {
-            PasteService.injectCommandV()
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.25) {
+                if NSApp.isActive {
+                    NSApp.deactivate()
+                }
+                PasteService.injectCommandV()
+            }
         }
         ToastWindowController.shared.show(
             title: pasteQueue.isEmpty ? "已全部粘贴" : "已出队（剩 \(pasteQueue.count)）",
