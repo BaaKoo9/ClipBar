@@ -92,12 +92,12 @@ struct SettingsView: View {
         VStack(alignment: .leading, spacing: 10) {
             sectionTitle("全局快捷键")
 
-            if !HotKeyService.isAccessibilityAvailable {
+            if !HotKeyService.isAccessibilityAvailable || !HotKeyService.isListeningAvailable {
                 HStack(spacing: 6) {
                     Image(systemName: "exclamationmark.triangle")
                         .font(.system(size: 10))
                         .foregroundStyle(.orange)
-                    Text("全局快捷键需要「辅助功能」权限")
+                    Text("全局快捷键需要「辅助功能」和「输入监控」权限")
                         .font(.system(size: 11))
                         .foregroundStyle(.secondary)
                     Button("去开启") {

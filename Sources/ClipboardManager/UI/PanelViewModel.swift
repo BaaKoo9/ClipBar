@@ -103,8 +103,12 @@ final class PanelViewModel: ObservableObject {
                 if NSApp.isActive {
                     NSApp.deactivate()
                 }
-                if let pid = PasteService.frontmostPID() {
+                let pid = PasteService.frontmostPID()
+                DebugLog.write("注入 ⌘V：pid=\(pid ?? -1)")
+                if let pid {
                     PasteService.injectCommandV(to: pid)
+                } else {
+                    PasteService.injectCommandV()
                 }
             }
         }
@@ -348,8 +352,12 @@ final class PanelViewModel: ObservableObject {
                 if NSApp.isActive {
                     NSApp.deactivate()
                 }
-                if let pid = PasteService.frontmostPID() {
+                let pid = PasteService.frontmostPID()
+                DebugLog.write("出队注入 ⌘V：pid=\(pid ?? -1)")
+                if let pid {
                     PasteService.injectCommandV(to: pid)
+                } else {
+                    PasteService.injectCommandV()
                 }
             }
         }

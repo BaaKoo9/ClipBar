@@ -33,7 +33,7 @@ struct SnapshotBarView: View {
             Divider()
             hintBar
         }
-        .frame(minWidth: 560, maxWidth: .infinity, minHeight: 196, maxHeight: 214)
+        .frame(minWidth: 560, maxWidth: .infinity, minHeight: 220, maxHeight: 240)
         .background(.ultraThinMaterial)
         .clipShape(RoundedRectangle(cornerRadius: 20, style: .continuous))
         .overlay(
@@ -226,17 +226,15 @@ struct SnapshotBarView: View {
                 .font(.system(size: 10))
                 .foregroundStyle(.tertiary)
             Spacer()
-            Button {
-                viewModel.clearQueue()
-            } label: {
-                Image(systemName: "xmark.circle.fill")
-                    .font(.system(size: 14))
-                    .foregroundStyle(.secondary)
-                    .frame(width: 26, height: 26)
-                    .contentShape(Rectangle())
-            }
-            .buttonStyle(.plain)
-            .help("清空队列")
+            Image(systemName: "xmark.circle.fill")
+                .font(.system(size: 14))
+                .foregroundStyle(.secondary)
+                .frame(width: 26, height: 26)
+                .contentShape(Rectangle())
+                .onTapGesture {
+                    viewModel.clearQueue()
+                }
+                .help("清空队列")
         }
         .padding(.horizontal, 14)
         .padding(.vertical, 5)
