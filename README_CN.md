@@ -2,6 +2,12 @@
 
 一个**本地优先、高性能、简约**的 macOS 剪贴板管理器。键盘流设计：呼出面板 → 方向键选择 → 回车粘贴，全程不碰鼠标。
 
+## 系统要求
+
+- **macOS 14 Sonoma** 及以上（含 macOS 15 Sequoia）
+- 支持 **Apple Silicon** 与 **Intel** Mac
+- 首次使用需授予「辅助功能」与「输入监控」权限（全局快捷键、自动粘贴）
+
 ## 功能
 
 - 菜单栏常驻，全局快捷键呼出面板（默认 `⌥⌘V`，可录制自定义）
@@ -12,15 +18,27 @@
 - 去重：相同内容自动刷新时间，不重复堆积
 - **顺序粘贴**：`⌥⌘E` 入队（模拟 ⌘C + 自动入队），`⌥⌘D` 出队（逐条粘贴），侧边常驻队列列表
 - 队列侧边窗：显示全部队列内容、可滚动、跟随复制起始屏幕
-- 设置：开机自启、历史上限（100–3000）、自动粘贴、忽略指定 App、清空历史
+- 设置：开机自启、历史上限（100–3000）、自动粘贴、忽略指定 App（可从应用列表选择）、清空历史
 - **隐私：零网络权限，所有数据仅存本机**（SQLite + 图片/RTF 缓存）
 - 关于窗口：版本信息与项目链接
 
 ## 安装
 
-从 [Releases](https://github.com/BaaKoo9/clipboard-manager/releases) 下载最新 DMG，拖入应用程序。
+从 [Releases](https://github.com/BaaKoo9/clipboard-manager/releases) 下载最新 **`.pkg` 安装包**，双击后按提示安装到「应用程序」。
 
-首次启动需授予「辅助功能」权限（全局快捷键与自动粘贴）。授权后全功能可用；固定签名保证重装后权限不丢失。
+### 首次打开（未公证签名）
+
+本应用使用自签名构建，**尚未申请 Apple 开发者公证**。从网络下载后，macOS 可能会拦截首次打开，可按下列任一方式处理：
+
+1. **推荐**：在 Finder 中找到 `Clipboard Manager`，**按住 Control 键单击**（或右键）→ 选择「打开」→ 在弹窗中再次点「打开」
+2. 或打开 **系统设置 → 隐私与安全性**，向下滚动到「已阻止使用… / 安全性」相关提示处，点击 **「仍要打开」**（文案可能随系统版本略有不同）
+
+完成上述步骤后即可正常启动。随后请在 **系统设置 → 隐私与安全性** 中为 Clipboard Manager 开启：
+
+- **辅助功能**
+- **输入监控**
+
+两项权限均授予后，全局快捷键与自动粘贴即可使用。
 
 ## 使用
 
@@ -41,7 +59,7 @@
 
 ```bash
 ./scripts/build-app.sh          # 生成 dist/Clipboard Manager.app
-./scripts/make-dmg.sh           # 生成 dist/Clipboard-Manager.dmg
+./scripts/make-pkg.sh           # 生成 dist/Clipboard-Manager-x.y.z.pkg
 ./scripts/run-tests.sh          # 运行核心单元测试
 ```
 
@@ -57,7 +75,7 @@ swift run CoreTests
 
 - Swift + SwiftUI + AppKit（零第三方依赖）
 - SQLite（系统库）：串行队列写入、延迟容量清理
-- CGEventTap 全局快捷键（辅助功能权限）
+- Carbon 全局热键 + CGEventTap（辅助功能 / 输入监控权限）
 - 图片 PNG 规范化存储 + JPEG 缩略图；富文本保留 RTF
 
 ## 路线图
@@ -66,7 +84,7 @@ swift run CoreTests
 - [x] 快照条、搜索、回填
 - [x] 可自定义全局快捷键（呼出/入队/出队）
 - [x] 顺序粘贴、置顶、忽略 App、开机自启
-- [x] App 图标、DMG 打包、关于窗口
+- [x] App 图标、pkg 安装包、关于窗口
 - [x] 队列侧边窗 + 屏幕跟随
 - [ ] 多端同步（iCloud 私有数据库）、更多类型识别（颜色、代码块）
 

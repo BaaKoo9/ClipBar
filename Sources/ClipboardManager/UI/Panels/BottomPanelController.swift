@@ -9,19 +9,27 @@ final class BottomPanelController: NSObject {
     private let viewModel: PanelViewModel
     /// 每次显示/隐藏自增，用来作废上一次操作挂起的动画收尾。
     private var visibilityToken: UInt = 0
+    /// 最近一次 show 的时刻：激活瞬间可能误触发 didResignActive，需忽略。
+    private var lastShowTime: CFAbsoluteTime = 0
 
     init(viewModel: PanelViewModel) {
         self.viewModel = viewModel
         super.init()
         viewModel.onRequestClose = { [weak self] animated in
-            self?.hide(animated: animated)
+            self?.hide(animated: animated, reason: "requestClose")
         }
         NotificationCenter.default.addObserver(
             forName: NSApplication.didResignActiveNotification,
             object: nil,
             queue: .main
         ) { [weak self] _ in
-            self?.hide()
+            guard let self else { return }
+            // activate(ignoringOtherApps) 前后偶发短暂 resign，若立刻 hide 会表现为「按了没弹出」。
+            if CFAbsoluteTimeGetCurrent() - self.lastShowTime < 0.35 {
+                DebugLog.write("忽略 didResignActive：距 show 不足 350ms")
+                return
+            }
+            self.hide(animated: true, reason: "didResignActive")
         }
     }
 
@@ -35,7 +43,11 @@ final class BottomPanelController: NSObject {
     }
 
     func toggle() {
-        isShown ? hide() : show()
+        if isShown {
+            hide(animated: true, reason: "toggleHide")
+        } else {
+            show()
+        }
     }
 
     func show() {
@@ -58,6 +70,7 @@ final class BottomPanelController: NSObject {
         // 作废挂起的隐藏收尾：淡出动画未结束时再次呼出，
         // 否则旧的 completionHandler 会把刚显示的面板 orderOut 掉。
         visibilityToken &+= 1
+        lastShowTime = CFAbsoluteTimeGetCurrent()
 
         // 直接落到最终位置：对接近全屏宽的毛玻璃窗口做位移动画会逐帧重排整个视图树，
         // 是呼出卡顿的主要来源。只做透明度过渡，观感依旧平滑但没有布局开销。
@@ -92,11 +105,12 @@ final class BottomPanelController: NSObject {
         }
     }
 
-    func hide(animated: Bool = true) {
+    func hide(animated: Bool = true, reason: String = "unknown") {
         guard let panel, panel.isVisible else {
             viewModel.panelDidClose()
             return
         }
+        DebugLog.write("hide 面板 reason=\(reason) animated=\(animated)")
         visibilityToken &+= 1
         let token = visibilityToken
         let finish = { [weak self] in

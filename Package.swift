@@ -11,7 +11,9 @@ let package = Package(
             name: "ClipboardManagerCore",
             path: "Sources/ClipboardManagerCore",
             linkerSettings: [
-                .linkedLibrary("sqlite3")
+                .linkedLibrary("sqlite3"),
+                .linkedFramework("Carbon"),
+                .linkedFramework("ApplicationServices")
             ]
         ),
         .executableTarget(

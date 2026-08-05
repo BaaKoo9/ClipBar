@@ -7,6 +7,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
     private var statusItem: NSStatusItem?
     private var panelController: BottomPanelController?
     private var settingsWindow: PanelWindow?
+    /// 1x1 透明非激活面板：让 LSUIElement 进程挂上 WindowServer，否则热键可能「已注册却不派发」。
+    private var keepAlivePanel: NSPanel?
+    private var didPrimeHotKeys = false
 
     private var panelViewModel = PanelViewModel()
 
@@ -23,6 +26,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         DebugLog.write("启动：快捷键就绪，耗时 \(LaunchClock.elapsedMilliseconds)ms")
 
         setupStatusItem()
+        ensureKeepAlivePanel()
         ClipboardMonitor.shared.start()
         requestPermissionsIfNeeded()
 
@@ -32,6 +36,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
             self.setupPanel()
             self.panelViewModel.loadHistory()
             DebugLog.write("启动：面板预构建完成，耗时 \(LaunchClock.elapsedMilliseconds)ms")
+            // 预热必须在首轮 UI 就绪后做：日志证实「从未 activate 时 tap 显示正常但收不到事件」，
+            // 用户右键菜单任意项会 activate，之后热键才恢复——这里自动完成同样的激活打通。
+            self.primeHotKeyDelivery()
         }
 
         NotificationCenter.default.addObserver(
@@ -46,11 +53,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
             forName: NSApplication.didBecomeActiveNotification,
             object: nil,
             queue: .main
-        ) { _ in
+        ) { [weak self] _ in
             HotKeyService.shared.rebuildMonitor()
             if HotKeyService.isAccessibilityAvailable, !HotKeyService.isListeningAvailable {
                 HotKeyService.requestListeningAccess()
             }
+            // 用户手动点菜单也会走到这里；若启动预热尚未完成，借这次激活补一次重建。
+            self?.rebuildHotKeysAfterActivationIfNeeded(reason: "didBecomeActive")
         }
 
         // 休眠唤醒后系统常会让事件 tap 失效，这里主动重建。
@@ -58,10 +67,102 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
             forName: NSWorkspace.didWakeNotification,
             object: nil,
             queue: .main
-        ) { _ in
+        ) { [weak self] _ in
             DebugLog.write("系统唤醒，重建快捷键通道")
+            self?.didPrimeHotKeys = false
             HotKeyService.shared.reinitialize()
+            self?.registerHotKeys()
+            self?.primeHotKeyDelivery()
         }
+    }
+
+    /// 挂一个永不抢焦点的透明面板，避免 accessory 进程在无窗时被 WindowServer 挂起事件投递。
+    private func ensureKeepAlivePanel() {
+        guard keepAlivePanel == nil else { return }
+        let panel = NSPanel(
+            contentRect: NSRect(x: -10_000, y: -10_000, width: 1, height: 1),
+            styleMask: [.borderless, .nonactivatingPanel],
+            backing: .buffered,
+            defer: false
+        )
+        panel.isOpaque = false
+        panel.backgroundColor = .clear
+        panel.alphaValue = 0
+        panel.hasShadow = false
+        panel.ignoresMouseEvents = true
+        panel.level = .statusBar
+        panel.collectionBehavior = [.canJoinAllSpaces, .stationary, .ignoresCycle, .fullScreenAuxiliary]
+        panel.isReleasedWhenClosed = false
+        panel.orderFrontRegardless()
+        keepAlivePanel = panel
+        DebugLog.write("保活面板已挂接（nonactivating）")
+    }
+
+    /// LSUIElement 冷启动时 CGEventTap/Carbon 可能「已启用却不派发」。
+    ///
+    /// 关键：accessory 应用若没有可成为 key 的窗口，`NSApp.activate` 是空操作——
+    /// 日志里启动预热后看不到 `didBecomeActive` 重建，而用户点「关于」会
+    /// `makeKeyAndOrderFront`，于是热键才突然好用。这里用隐形 key 窗口完成同样激活。
+    private func primeHotKeyDelivery() {
+        let previous = NSWorkspace.shared.frontmostApplication
+        let previousPID = previous?.processIdentifier
+        let alreadyPrimed = self.didPrimeHotKeys
+        DebugLog.write(
+            "启动预热开始：前台=\(previous?.localizedName ?? "无") pid=\(previousPID.map(String.init) ?? "-") " +
+            "已预热=\(alreadyPrimed) isActive=\(NSApp.isActive)"
+        )
+
+        let primer = PanelWindow(
+            contentRect: NSRect(x: -10_000, y: -10_000, width: 1, height: 1),
+            styleMask: [.borderless],
+            backing: .buffered,
+            defer: false
+        )
+        primer.isOpaque = false
+        primer.backgroundColor = .clear
+        primer.alphaValue = 0
+        primer.hasShadow = false
+        primer.ignoresMouseEvents = true
+        primer.level = .statusBar
+        primer.collectionBehavior = [.canJoinAllSpaces, .ignoresCycle, .fullScreenAuxiliary]
+        primer.isReleasedWhenClosed = false
+
+        NSApp.activate(ignoringOtherApps: true)
+        primer.makeKeyAndOrderFront(nil)
+        DebugLog.write("启动预热：隐形 key 窗口已前置 isActive=\(NSApp.isActive)")
+
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.25) { [weak self] in
+            guard let self else { return }
+            self.rebuildHotKeysAfterActivationIfNeeded(reason: "launchPrime")
+            primer.orderOut(nil)
+
+            // 归还焦点：否则启动瞬间会抢走用户正在用的 App
+            if let previous,
+               previous.processIdentifier != ProcessInfo.processInfo.processIdentifier,
+               !previous.isTerminated {
+                previous.activate(options: [.activateIgnoringOtherApps])
+            }
+            // accessory 即使 activate 了前台 App，自身 isActive 仍可能为 true；显式 deactivate 更干净
+            NSApp.deactivate()
+            DebugLog.write(
+                "启动预热结束：isActive=\(NSApp.isActive) " +
+                "front=\(NSWorkspace.shared.frontmostApplication?.localizedName ?? "?")"
+            )
+        }
+    }
+
+    private func rebuildHotKeysAfterActivationIfNeeded(reason: String) {
+        if didPrimeHotKeys, reason != "launchPrime" {
+            return
+        }
+        HotKeyService.shared.reinitialize()
+        registerHotKeys()
+        didPrimeHotKeys = true
+        let status = HotKeyService.shared.status
+        DebugLog.write(
+            "快捷键通道重建 reason=\(reason) \(status.description) " +
+            "carbon=\(status.carbonCount) tap=\(status.tapActive) 启动后\(LaunchClock.elapsedMilliseconds)ms"
+        )
     }
 
     private func requestPermissionsIfNeeded() {
@@ -107,7 +208,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
             self?.panelViewModel.dequeueAndPaste()
         }
 
-        DebugLog.write("快捷键注册完成：呼出 \(KeyCodeMapper.displayString(keyCode: settings.hotKeyCode, modifiers: settings.hotKeyModifiers)) / 入队 \(KeyCodeMapper.displayString(keyCode: settings.enqueueHotKeyCode, modifiers: settings.enqueueHotKeyModifiers)) / 出队 \(KeyCodeMapper.displayString(keyCode: settings.dequeueHotKeyCode, modifiers: settings.dequeueHotKeyModifiers))")
+        let status = HotKeyService.shared.status
+        DebugLog.write(
+            "快捷键注册完成：呼出 \(KeyCodeMapper.displayString(keyCode: settings.hotKeyCode, modifiers: settings.hotKeyModifiers)) / " +
+            "入队 \(KeyCodeMapper.displayString(keyCode: settings.enqueueHotKeyCode, modifiers: settings.enqueueHotKeyModifiers)) / " +
+            "出队 \(KeyCodeMapper.displayString(keyCode: settings.dequeueHotKeyCode, modifiers: settings.dequeueHotKeyModifiers)) | " +
+            "通道=\(status.description) carbon=\(status.carbonCount) tap=\(status.tapActive) listening=\(status.listening)"
+        )
     }
 
     // MARK: - Status item

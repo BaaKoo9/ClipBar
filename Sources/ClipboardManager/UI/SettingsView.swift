@@ -14,7 +14,7 @@ struct SettingsView: View {
     @State private var autoPaste: Bool
     @State private var launchAtLogin: Bool
     @State private var ignoredApps: [String]
-    @State private var ignoredAppInput = ""
+    @State private var showAppPicker = false
     @State private var showClearConfirm = false
 
     init() {
@@ -61,7 +61,7 @@ struct SettingsView: View {
 
     private var titleBar: some View {
         HStack(spacing: 8) {
-            Image(systemName: "doc.on.clipboard")
+            Image(systemName: "rectangle.stack")
                 .font(.system(size: 13, weight: .medium))
                 .foregroundStyle(Color.accentColor)
 
@@ -225,75 +225,139 @@ struct SettingsView: View {
     // MARK: - 隐私
 
     private var privacySection: some View {
-        VStack(alignment: .leading, spacing: 8) {
+        VStack(alignment: .leading, spacing: 10) {
             sectionTitle("隐私")
 
-            HStack(spacing: 8) {
-                TextField("App Bundle ID，如 com.apple.PasswordManager", text: $ignoredAppInput)
-                    .textFieldStyle(.plain)
-                    .font(.system(size: 12))
-                    .padding(.horizontal, 10)
-                    .padding(.vertical, 6)
-                    .background(Color.primary.opacity(0.05), in: RoundedRectangle(cornerRadius: 8))
+            Text("忽略名单中的应用，其复制内容不会写入历史。")
+                .font(.system(size: 11))
+                .foregroundStyle(.tertiary)
 
-                Button("添加") {
-                    addIgnoredApp()
-                }
-                .font(.system(size: 12))
-                .disabled(ignoredAppInput.trimmingCharacters(in: .whitespaces).isEmpty)
-            }
-
-            Button {
-                if let bundleID = NSWorkspace.shared.frontmostApplication?.bundleIdentifier,
-                   !ignoredApps.contains(bundleID) {
-                    ignoredApps.append(bundleID)
-                    saveIgnoredApps()
-                }
-            } label: {
-                Label("添加当前前台 App", systemImage: "app.badge")
-                    .font(.system(size: 12))
-            }
-            .buttonStyle(.plain)
-            .foregroundStyle(.secondary)
-
-            if !ignoredApps.isEmpty {
-                VStack(spacing: 0) {
-                    ForEach(ignoredApps, id: \.self) { bundleID in
-                        HStack {
-                            Text(bundleID)
-                                .font(.system(size: 11, design: .monospaced))
-                                .lineLimit(1)
-                            Spacer()
+            // 快捷推荐：密码管理器等敏感 App
+            if !suggestedIgnoredApps.isEmpty {
+                VStack(alignment: .leading, spacing: 6) {
+                    Text("推荐忽略")
+                        .font(.system(size: 11, weight: .medium))
+                        .foregroundStyle(.secondary)
+                    FlowLayout(spacing: 6) {
+                        ForEach(suggestedIgnoredApps) { app in
                             Button {
-                                ignoredApps.removeAll { $0 == bundleID }
-                                saveIgnoredApps()
+                                addIgnoredApp(app.bundleID)
                             } label: {
-                                Image(systemName: "xmark.circle.fill")
-                                    .font(.system(size: 12))
-                                    .foregroundStyle(.tertiary)
+                                HStack(spacing: 5) {
+                                    AppIconView(icon: app.icon, size: 14)
+                                    Text(app.name)
+                                        .font(.system(size: 11))
+                                    Image(systemName: "plus")
+                                        .font(.system(size: 9, weight: .semibold))
+                                        .foregroundStyle(.secondary)
+                                }
+                                .padding(.horizontal, 8)
+                                .padding(.vertical, 5)
+                                .background(Color.primary.opacity(0.05), in: Capsule())
                             }
                             .buttonStyle(.plain)
-                        }
-                        .padding(.vertical, 5)
-                        if bundleID != ignoredApps.last {
-                            Divider()
                         }
                     }
                 }
             }
 
-            Text("这些 App 复制的内容不会被记录，适合密码管理器等敏感场景。所有数据仅保存在本机，应用没有任何网络权限。")
+            HStack(spacing: 10) {
+                Button {
+                    showAppPicker = true
+                } label: {
+                    Label("从应用列表添加…", systemImage: "plus.circle.fill")
+                        .font(.system(size: 12, weight: .semibold))
+                        .foregroundStyle(.primary)
+                        .padding(.horizontal, 10)
+                        .padding(.vertical, 6)
+                        .background(Color.primary.opacity(0.08), in: RoundedRectangle(cornerRadius: 8))
+                }
+                .buttonStyle(.plain)
+                .popover(isPresented: $showAppPicker, arrowEdge: .bottom) {
+                    AppPickerPopover(excludedBundleIDs: Set(ignoredApps)) { bundleID in
+                        addIgnoredApp(bundleID)
+                        showAppPicker = false
+                    }
+                }
+
+                Button {
+                    if let bundleID = NSWorkspace.shared.frontmostApplication?.bundleIdentifier {
+                        addIgnoredApp(bundleID)
+                    }
+                } label: {
+                    Label("添加当前前台 App", systemImage: "macwindow")
+                        .font(.system(size: 12))
+                }
+                .buttonStyle(.plain)
+                .foregroundStyle(.secondary)
+            }
+
+            if ignoredApps.isEmpty {
+                Text("尚未忽略任何应用")
+                    .font(.system(size: 11))
+                    .foregroundStyle(.tertiary)
+                    .padding(.vertical, 4)
+            } else {
+                VStack(spacing: 0) {
+                    ForEach(ignoredApps, id: \.self) { bundleID in
+                        let info = AppCatalog.info(for: bundleID)
+                        HStack(spacing: 10) {
+                            AppIconView(icon: info.icon, size: 22)
+                            VStack(alignment: .leading, spacing: 1) {
+                                Text(info.name)
+                                    .font(.system(size: 12, weight: .medium))
+                                    .lineLimit(1)
+                                Text(bundleID)
+                                    .font(.system(size: 10))
+                                    .foregroundStyle(.tertiary)
+                                    .lineLimit(1)
+                            }
+                            Spacer(minLength: 0)
+                            Button {
+                                ignoredApps.removeAll { $0 == bundleID }
+                                saveIgnoredApps()
+                            } label: {
+                                Image(systemName: "xmark.circle.fill")
+                                    .font(.system(size: 14))
+                                    .foregroundStyle(.tertiary)
+                                    .frame(width: 28, height: 28)
+                                    .contentShape(Rectangle())
+                            }
+                            .buttonStyle(.plain)
+                            .help("移除")
+                        }
+                        .padding(.vertical, 6)
+                        if bundleID != ignoredApps.last {
+                            Divider()
+                        }
+                    }
+                }
+                .padding(.horizontal, 8)
+                .background(Color.primary.opacity(0.03), in: RoundedRectangle(cornerRadius: 10))
+            }
+
+            Text("所有数据仅保存在本机，应用没有任何网络权限。")
                 .font(.system(size: 11))
                 .foregroundStyle(.tertiary)
-                .lineSpacing(2)
         }
     }
 
-    private func addIgnoredApp() {
-        let id = ignoredAppInput.trimmingCharacters(in: .whitespacesAndNewlines)
+    /// 本机已安装、且尚未加入忽略名单的常见敏感应用。
+    private var suggestedIgnoredApps: [AppCatalog.AppInfo] {
+        AppCatalog.commonSensitiveBundleIDs
+            .filter { !ignoredApps.contains($0) }
+            .compactMap { id -> AppCatalog.AppInfo? in
+                let info = AppCatalog.info(for: id)
+                // 只推荐本机确实存在的 App，避免一排无效按钮
+                guard AppCatalog.isInstalled(bundleID: id) else { return nil }
+                return info
+            }
+    }
+
+    private func addIgnoredApp(_ bundleID: String) {
+        let id = bundleID.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !id.isEmpty, !ignoredApps.contains(id) else { return }
         ignoredApps.append(id)
-        ignoredAppInput = ""
         saveIgnoredApps()
     }
 
@@ -330,6 +394,259 @@ struct SettingsView: View {
         Text(title)
             .font(.system(size: 12, weight: .semibold))
             .foregroundStyle(.secondary)
+    }
+}
+
+// MARK: - 应用目录 / 忽略名单选择
+
+private enum AppCatalog {
+    struct AppInfo: Identifiable, Hashable {
+        let bundleID: String
+        let name: String
+        let icon: NSImage?
+        var id: String { bundleID }
+    }
+
+    /// 竞品常见忽略对象：密码管理器与系统钥匙串相关。
+    static let commonSensitiveBundleIDs: [String] = [
+        "com.1password.1password",
+        "com.1password.1password-launcher",
+        "com.agilebits.onepassword7",
+        "com.bitwarden.desktop",
+        "com.lastpass.LastPass",
+        "com.dashlane.dashlanephoneagent",
+        "com.dashlane.mac",
+        "org.keepassxc.keepassxc",
+        "com.apple.Passwords",
+        "com.apple.PasswordManager",
+        "com.apple.keychainaccess",
+        "com.microsoft.CompanyPortalMac"
+    ]
+
+    static func isInstalled(bundleID: String) -> Bool {
+        NSWorkspace.shared.urlForApplication(withBundleIdentifier: bundleID) != nil
+    }
+
+    static func info(for bundleID: String) -> AppInfo {
+        if let url = NSWorkspace.shared.urlForApplication(withBundleIdentifier: bundleID) {
+            let name = localizedName(at: url) ?? URL(fileURLWithPath: url.path).deletingPathExtension().lastPathComponent
+            let icon = NSWorkspace.shared.icon(forFile: url.path)
+            icon.size = NSSize(width: 32, height: 32)
+            return AppInfo(bundleID: bundleID, name: name, icon: icon)
+        }
+        // 未安装：用 bundle id 最后一段凑个可读名
+        let fallback = bundleID.split(separator: ".").last.map(String.init) ?? bundleID
+        return AppInfo(bundleID: bundleID, name: fallback, icon: nil)
+    }
+
+    /// 运行中的常规 App + /Applications 等目录扫描，按名称排序；已忽略的由调用方过滤。
+    static func listCandidates(excluding excluded: Set<String>) -> [AppInfo] {
+        var byID: [String: AppInfo] = [:]
+
+        for app in NSWorkspace.shared.runningApplications {
+            guard app.activationPolicy == .regular,
+                  let id = app.bundleIdentifier,
+                  !excluded.contains(id),
+                  !id.hasPrefix("com.apple.WebKit.") else { continue }
+            let name = app.localizedName ?? id
+            let icon = app.icon
+            icon?.size = NSSize(width: 32, height: 32)
+            byID[id] = AppInfo(bundleID: id, name: name, icon: icon)
+        }
+
+        let directories = applicationDirectories()
+        let fm = FileManager.default
+        for directory in directories {
+            guard let items = try? fm.contentsOfDirectory(
+                at: directory,
+                includingPropertiesForKeys: nil,
+                options: [.skipsHiddenFiles]
+            ) else { continue }
+            for url in items where url.pathExtension == "app" {
+                guard let id = Bundle(url: url)?.bundleIdentifier,
+                      !excluded.contains(id),
+                      byID[id] == nil else { continue }
+                let name = localizedName(at: url) ?? url.deletingPathExtension().lastPathComponent
+                let icon = NSWorkspace.shared.icon(forFile: url.path)
+                icon.size = NSSize(width: 32, height: 32)
+                byID[id] = AppInfo(bundleID: id, name: name, icon: icon)
+            }
+        }
+
+        return byID.values.sorted {
+            $0.name.localizedCaseInsensitiveCompare($1.name) == .orderedAscending
+        }
+    }
+
+    private static func applicationDirectories() -> [URL] {
+        var urls: [URL] = [
+            URL(fileURLWithPath: "/Applications"),
+            URL(fileURLWithPath: "/System/Applications"),
+            URL(fileURLWithPath: "/System/Applications/Utilities"),
+            URL(fileURLWithPath: "/Applications/Utilities")
+        ]
+        if let userApps = FileManager.default.urls(for: .applicationDirectory, in: .userDomainMask).first {
+            urls.append(userApps)
+        }
+        return urls
+    }
+
+    private static func localizedName(at url: URL) -> String? {
+        if let bundle = Bundle(url: url) {
+            if let name = bundle.object(forInfoDictionaryKey: "CFBundleDisplayName") as? String, !name.isEmpty {
+                return name
+            }
+            if let name = bundle.object(forInfoDictionaryKey: "CFBundleName") as? String, !name.isEmpty {
+                return name
+            }
+        }
+        return nil
+    }
+}
+
+private struct AppIconView: View {
+    let icon: NSImage?
+    let size: CGFloat
+
+    var body: some View {
+        Group {
+            if let icon {
+                Image(nsImage: icon)
+                    .resizable()
+                    .interpolation(.high)
+                    .aspectRatio(contentMode: .fit)
+            } else {
+                Image(systemName: "app.fill")
+                    .font(.system(size: size * 0.7))
+                    .foregroundStyle(.secondary)
+            }
+        }
+        .frame(width: size, height: size)
+        .clipShape(RoundedRectangle(cornerRadius: size * 0.22, style: .continuous))
+    }
+}
+
+/// 简单流式布局：推荐忽略按钮自动换行。
+private struct FlowLayout: Layout {
+    var spacing: CGFloat = 6
+
+    func sizeThatFits(proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) -> CGSize {
+        let maxWidth = proposal.width ?? .infinity
+        var x: CGFloat = 0
+        var y: CGFloat = 0
+        var rowHeight: CGFloat = 0
+        for subview in subviews {
+            let size = subview.sizeThatFits(.unspecified)
+            if x + size.width > maxWidth, x > 0 {
+                x = 0
+                y += rowHeight + spacing
+                rowHeight = 0
+            }
+            rowHeight = max(rowHeight, size.height)
+            x += size.width + spacing
+        }
+        return CGSize(width: maxWidth.isFinite ? maxWidth : x, height: y + rowHeight)
+    }
+
+    func placeSubviews(in bounds: CGRect, proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) {
+        var x = bounds.minX
+        var y = bounds.minY
+        var rowHeight: CGFloat = 0
+        for subview in subviews {
+            let size = subview.sizeThatFits(.unspecified)
+            if x + size.width > bounds.maxX, x > bounds.minX {
+                x = bounds.minX
+                y += rowHeight + spacing
+                rowHeight = 0
+            }
+            subview.place(at: CGPoint(x: x, y: y), proposal: ProposedViewSize(size))
+            rowHeight = max(rowHeight, size.height)
+            x += size.width + spacing
+        }
+    }
+}
+
+private struct AppPickerPopover: View {
+    let excludedBundleIDs: Set<String>
+    var onSelect: (String) -> Void
+
+    @State private var query = ""
+    @State private var apps: [AppCatalog.AppInfo] = []
+    @State private var loading = true
+
+    private var filtered: [AppCatalog.AppInfo] {
+        let q = query.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !q.isEmpty else { return apps }
+        return apps.filter {
+            $0.name.localizedCaseInsensitiveContains(q) ||
+            $0.bundleID.localizedCaseInsensitiveContains(q)
+        }
+    }
+
+    var body: some View {
+        VStack(spacing: 0) {
+            HStack(spacing: 8) {
+                Image(systemName: "magnifyingglass")
+                    .foregroundStyle(.secondary)
+                TextField("搜索应用名称…", text: $query)
+                    .textFieldStyle(.plain)
+                    .font(.system(size: 13))
+            }
+            .padding(10)
+
+            Divider()
+
+            if loading {
+                ProgressView()
+                    .controlSize(.small)
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+            } else if filtered.isEmpty {
+                Text(query.isEmpty ? "未找到可添加的应用" : "无匹配结果")
+                    .font(.system(size: 12))
+                    .foregroundStyle(.secondary)
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+            } else {
+                ScrollView {
+                    LazyVStack(spacing: 0) {
+                        ForEach(filtered) { app in
+                            Button {
+                                onSelect(app.bundleID)
+                            } label: {
+                                HStack(spacing: 10) {
+                                    AppIconView(icon: app.icon, size: 28)
+                                    VStack(alignment: .leading, spacing: 2) {
+                                        Text(app.name)
+                                            .font(.system(size: 12, weight: .medium))
+                                            .foregroundStyle(.primary)
+                                            .lineLimit(1)
+                                        Text(app.bundleID)
+                                            .font(.system(size: 10))
+                                            .foregroundStyle(.tertiary)
+                                            .lineLimit(1)
+                                    }
+                                    Spacer(minLength: 0)
+                                }
+                                .padding(.horizontal, 10)
+                                .padding(.vertical, 7)
+                                .contentShape(Rectangle())
+                            }
+                            .buttonStyle(.plain)
+                            Divider().padding(.leading, 48)
+                        }
+                    }
+                }
+            }
+        }
+        .frame(width: 320, height: 360)
+        .task {
+            // 扫盘放后台，避免弹层卡顿
+            let excluded = excludedBundleIDs
+            let list = await Task.detached(priority: .userInitiated) {
+                AppCatalog.listCandidates(excluding: excluded)
+            }.value
+            apps = list
+            loading = false
+        }
     }
 }
 
