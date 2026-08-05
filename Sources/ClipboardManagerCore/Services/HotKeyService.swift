@@ -65,6 +65,7 @@ public final class HotKeyService {
         public let listening: Bool
         public let tapActive: Bool
         public let carbonCount: Int
+        public let secureInput: Bool
 
         public var isWorking: Bool { carbonCount > 0 || tapActive || listening }
 
@@ -91,6 +92,8 @@ public final class HotKeyService {
     private var watchdogTimer: Timer?
     private var lastListeningAvailable = false
     private var lastAccessibilityAvailable = false
+    private var lastSecureInputEnabled = false
+    private var onSecureInputChange: ((Bool) -> Void)?
     private let lock = NSLock()
 
     private var eventTap: CFMachPort?
@@ -116,6 +119,17 @@ public final class HotKeyService {
         AXIsProcessTrusted()
     }
 
+    /// 密码框等会开启系统「安全输入」，此时全局快捷键无法收到按键（系统安全限制）。
+    public static var isSecureEventInputEnabled: Bool {
+        IsSecureEventInputEnabled()
+    }
+
+    /// 安全输入状态变化时回调（可选，用于诊断；面板呼出仍直接读 isSecureEventInputEnabled）。
+    public func setSecureInputHandler(_ handler: ((Bool) -> Void)?) {
+        onSecureInputChange = handler
+        lastSecureInputEnabled = Self.isSecureEventInputEnabled
+    }
+
     public static func requestAccessibilityAccess() {
         let options = [kAXTrustedCheckOptionPrompt.takeUnretainedValue() as String: true] as CFDictionary
         AXIsProcessTrustedWithOptions(options)
@@ -139,7 +153,8 @@ public final class HotKeyService {
             accessibility: Self.isAccessibilityAvailable,
             listening: Self.isListeningAvailable,
             tapActive: tapActive,
-            carbonCount: carbonCount
+            carbonCount: carbonCount,
+            secureInput: Self.isSecureEventInputEnabled
         )
     }
 
@@ -486,7 +501,7 @@ public final class HotKeyService {
     // MARK: - 看护
 
     private func startWatchdog() {
-        let timer = Timer(timeInterval: 2.0, repeats: true) { [weak self] _ in
+        let timer = Timer(timeInterval: 0.8, repeats: true) { [weak self] _ in
             self?.watchdogTick()
         }
         RunLoop.main.add(timer, forMode: .common)
@@ -528,6 +543,18 @@ public final class HotKeyService {
             lastListeningAvailable = listening
             DebugLog.write("输入监控权限变化：\(listening)")
             rebuildMonitor()
+        }
+
+        // 密码框等开启安全输入时记录状态；结束后确认 tap 仍可用
+        let secure = Self.isSecureEventInputEnabled
+        if secure != lastSecureInputEnabled {
+            lastSecureInputEnabled = secure
+            DebugLog.write("安全输入状态：\(secure)")
+            if !secure {
+                ensureTapHealthy()
+                rebuildMonitor()
+            }
+            onSecureInputChange?(secure)
         }
 
         // 启动后前 30 秒每 6 秒打一次通道快照，方便对照「按了没反应」时段

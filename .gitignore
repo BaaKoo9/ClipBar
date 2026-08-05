@@ -69,3 +69,8 @@ fastlane/test_output
 
 # 图标源文件由 Tools/GenerateIcon.swift 生成
 /Resources/AppIcon.iconset
+
+.codegraph/
+
+# 会话交接文档（本地生成，不入库）
+/HANDOFF.md

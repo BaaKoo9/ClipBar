@@ -230,6 +230,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
             button.target = self
             button.action = #selector(handleStatusItemClick(_:))
             button.sendAction(on: [.leftMouseUp, .rightMouseUp])
+            button.toolTip = "Clipboard Manager"
         }
         statusItem = item
     }
@@ -248,7 +249,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
     private func showStatusMenu(relativeTo view: NSView) {
         let menu = NSMenu()
 
-        let showItem = NSMenuItem(title: "显示剪贴板面板", action: #selector(togglePanelAction(_:)), keyEquivalent: "")
+        let showItem = NSMenuItem(title: "显示剪贴板面板", action: #selector(showPanelFromMenu(_:)), keyEquivalent: "")
         showItem.target = self
 
         let status = HotKeyService.shared.status
@@ -265,6 +266,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         let settingsItem = NSMenuItem(title: "设置…", action: #selector(openSettings(_:)), keyEquivalent: "")
         settingsItem.target = self
 
+        let updateItem = NSMenuItem(title: "检查更新…", action: #selector(checkForUpdates(_:)), keyEquivalent: "")
+        updateItem.target = self
+
         let aboutItem = NSMenuItem(title: "关于 Clipboard Manager…", action: #selector(openAbout(_:)), keyEquivalent: "")
         aboutItem.target = self
 
@@ -274,11 +278,16 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         menu.addItem(reinitItem)
         menu.addItem(.separator())
         menu.addItem(settingsItem)
+        menu.addItem(updateItem)
         menu.addItem(aboutItem)
         menu.addItem(.separator())
         menu.addItem(NSMenuItem(title: "退出 Clipboard Manager", action: #selector(quitApp(_:)), keyEquivalent: "q"))
 
         NSMenu.popUpContextMenu(menu, with: NSApp.currentEvent ?? NSEvent(), for: view)
+    }
+
+    @objc private func checkForUpdates(_ sender: Any?) {
+        UpdateChecker.checkForUpdates(interactive: true)
     }
 
     /// 手动重建快捷键通道：权限已授予但系统 TCC 缓存滞后时的兜底入口。
@@ -303,6 +312,17 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
                     : "请在系统设置中授予辅助功能与输入监控权限",
                 systemImage: status.isWorking ? "checkmark.circle" : "exclamationmark.triangle"
             )
+        }
+    }
+
+    @objc private func showPanelFromMenu(_ sender: Any?) {
+        // 右键菜单关闭会触发 didResignActive；等菜单收起后再强制 show
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.15) { [weak self] in
+            guard let self else { return }
+            DebugLog.write("菜单呼出面板")
+            self.setupPanel()
+            self.settingsWindow?.orderOut(nil)
+            self.panelController?.show(resignGrace: 1.2, fromStatusMenu: true)
         }
     }
 

@@ -252,9 +252,7 @@ public final class ClipboardStore {
                      item.hash, now, now]
                 )
                 self.insertCount += 1
-                if self.insertCount % 25 == 0 {
-                    self.enforceLimit()
-                }
+                self.enforceLimit()
             }
         }
     }
@@ -276,9 +274,27 @@ public final class ClipboardStore {
     }
 
     private func enforceLimit() {
+        let limit = max(AppSettings.shared.historyLimit, 1)
         let total = scalarCount("SELECT COUNT(*) FROM items WHERE pinned = 0")
-        let limit = AppSettings.shared.historyLimit
-        guard total > limit + 25 else { return }
+        guard total > limit else { return }
+
+        // 先取将被删除的行以便清理图片/RTF 缓存，再按上限裁掉多余未置顶条目
+        let doomed = query(
+            """
+            SELECT \(Self.itemColumns) FROM items
+            WHERE pinned = 0
+              AND id NOT IN (
+                  SELECT id FROM items
+                  WHERE pinned = 0
+                  ORDER BY updated_at DESC, id DESC
+                  LIMIT ?
+              )
+            """,
+            [limit]
+        )
+        for item in doomed {
+            removeContentFiles(for: item)
+        }
         execute(
             """
             DELETE FROM items
@@ -292,6 +308,16 @@ public final class ClipboardStore {
             """,
             [limit]
         )
+    }
+
+    /// 按当前历史上限立即清理（设置变更或面板呼出时调用）。
+    public func enforceHistoryLimit(completion: (() -> Void)? = nil) {
+        queue.async { [weak self] in
+            self?.enforceLimit()
+            if let completion {
+                DispatchQueue.main.async(execute: completion)
+            }
+        }
     }
 
     // MARK: - 读取
@@ -329,7 +355,8 @@ public final class ClipboardStore {
                 sql += " WHERE kind = ?"
                 bindings.append(kind)
             }
-            sql += " ORDER BY updated_at DESC, id DESC"
+            // 置顶优先，再按最近使用时间
+            sql += " ORDER BY pinned DESC, updated_at DESC, id DESC"
             if let limit {
                 sql += " LIMIT ?"
                 bindings.append(limit)
@@ -361,7 +388,7 @@ public final class ClipboardStore {
                 sql += " AND kind = ?"
                 bindings.append(kind)
             }
-            sql += " ORDER BY updated_at DESC, id DESC"
+            sql += " ORDER BY pinned DESC, updated_at DESC, id DESC"
             if let limit {
                 sql += " LIMIT ?"
                 bindings.append(limit)

@@ -11,6 +11,8 @@ final class BottomPanelController: NSObject {
     private var visibilityToken: UInt = 0
     /// 最近一次 show 的时刻：激活瞬间可能误触发 didResignActive，需忽略。
     private var lastShowTime: CFAbsoluteTime = 0
+    /// 忽略 didResignActive 的宽限时长（右键菜单关闭后会更晚触发 resign）。
+    private var resignGraceSeconds: CFAbsoluteTime = 0.35
 
     init(viewModel: PanelViewModel) {
         self.viewModel = viewModel
@@ -23,13 +25,15 @@ final class BottomPanelController: NSObject {
             object: nil,
             queue: .main
         ) { [weak self] _ in
-            guard let self else { return }
-            // activate(ignoringOtherApps) 前后偶发短暂 resign，若立刻 hide 会表现为「按了没弹出」。
-            if CFAbsoluteTimeGetCurrent() - self.lastShowTime < 0.35 {
-                DebugLog.write("忽略 didResignActive：距 show 不足 350ms")
-                return
+            Task { @MainActor in
+                guard let self else { return }
+                let grace = self.resignGraceSeconds
+                if CFAbsoluteTimeGetCurrent() - self.lastShowTime < grace {
+                    DebugLog.write("忽略 didResignActive：距 show 不足 \(Int(grace * 1000))ms")
+                    return
+                }
+                self.hide(animated: true, reason: "didResignActive")
             }
-            self.hide(animated: true, reason: "didResignActive")
         }
     }
 
@@ -50,7 +54,10 @@ final class BottomPanelController: NSObject {
         }
     }
 
-    func show() {
+    /// - Parameters:
+    ///   - resignGrace: 忽略 didResignActive 的时长
+    ///   - fromStatusMenu: 右键菜单呼出；菜单关闭后 App 常仍未真正激活，需强制 orderFrontRegardless
+    func show(resignGrace: CFAbsoluteTime = 0.35, fromStatusMenu: Bool = false) {
         if panel == nil {
             buildPanel()
         }
@@ -62,45 +69,60 @@ final class BottomPanelController: NSObject {
 
         let screen = ScreenHelper.activeScreen
         let visible = screen.visibleFrame
-        DebugLog.write("show 面板 screen=\(NSStringFromRect(screen.frame)) visible=\(NSStringFromRect(visible))")
-        let width = visible.width - 32
-        let height: CGFloat = 280
+        let secure = HotKeyService.isSecureEventInputEnabled
+        DebugLog.write(
+            "show 面板 screen=\(NSStringFromRect(screen.frame)) visible=\(NSStringFromRect(visible)) " +
+            "secure=\(secure) fromMenu=\(fromStatusMenu) frontPID=\(sourcePID ?? -1)"
+        )
+        let width = max(visible.width - 48, 560)
+        let height: CGFloat = 268
         let finalRect = NSRect(x: visible.midX - width / 2, y: visible.minY + 16, width: width, height: height)
 
-        // 作废挂起的隐藏收尾：淡出动画未结束时再次呼出，
-        // 否则旧的 completionHandler 会把刚显示的面板 orderOut 掉。
         visibilityToken &+= 1
+        resignGraceSeconds = resignGrace
         lastShowTime = CFAbsoluteTimeGetCurrent()
 
-        // 直接落到最终位置：对接近全屏宽的毛玻璃窗口做位移动画会逐帧重排整个视图树，
-        // 是呼出卡顿的主要来源。只做透明度过渡，观感依旧平滑但没有布局开销。
-        panel.setFrame(finalRect, display: false)
-        panel.alphaValue = 0
-        NSApp.activate(ignoringOtherApps: true)
-        panel.makeKeyAndOrderFront(nil)
-        if !panel.isVisible {
-            panel.orderFrontRegardless()
-        }
+        panel.setFrame(finalRect, display: true)
 
-        NSAnimationContext.runAnimationGroup { context in
-            context.duration = 0.09
-            context.timingFunction = CAMediaTimingFunction(name: .easeOut)
-            panel.animator().alphaValue = 1
+        // 安全输入或菜单呼出时：系统往往不允许抢焦点，makeKeyAndOrderFront 会把 isVisible
+        // 标成 true 但窗体未真正上屏。必须 orderFrontRegardless，并抬高层级。
+        let forceFront = secure || fromStatusMenu
+        if forceFront {
+            panel.level = .statusBar
+            panel.alphaValue = 1
+            panel.orderFrontRegardless()
+            // 尽量成为 key 以便搜索/方向键；失败也不影响可见性
+            panel.makeKeyAndOrderFront(nil)
+            panel.orderFrontRegardless()
+        } else {
+            panel.level = .floating
+            panel.alphaValue = 0
+            NSApp.activate(ignoringOtherApps: true)
+            panel.makeKeyAndOrderFront(nil)
+            panel.orderFrontRegardless()
+            NSAnimationContext.runAnimationGroup { context in
+                context.duration = 0.09
+                context.timingFunction = CAMediaTimingFunction(name: .easeOut)
+                panel.animator().alphaValue = 1
+            }
         }
 
         viewModel.panelDidOpen()
 
-        // 冷启动或多屏切换时首显偶发失败，复查一次并记录真实结果。
         let token = visibilityToken
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.25) { [weak self] in
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.2) { [weak self] in
             guard let self, let panel = self.panel, token == self.visibilityToken else { return }
-            if panel.isVisible {
-                DebugLog.write("面板已显示 visible=true alpha=\(panel.alphaValue)")
-            } else {
-                DebugLog.write("面板首显失败，强制置前重试")
+            let occluded = !panel.occlusionState.contains(.visible)
+            DebugLog.write(
+                "面板状态 visible=\(panel.isVisible) alpha=\(panel.alphaValue) " +
+                "isKey=\(panel.isKeyWindow) level=\(panel.level.rawValue) " +
+                "occluded=\(occluded) frame=\(NSStringFromRect(panel.frame))"
+            )
+            if !panel.isVisible || occluded || panel.alphaValue < 0.9 {
+                DebugLog.write("面板未真正可见，强制补救")
                 panel.alphaValue = 1
+                panel.level = .statusBar
                 panel.orderFrontRegardless()
-                panel.makeKeyAndOrderFront(nil)
             }
         }
     }
@@ -117,13 +139,18 @@ final class BottomPanelController: NSObject {
             guard let self, token == self.visibilityToken else { return }
             panel.orderOut(nil)
             panel.alphaValue = 1
+            panel.level = .floating
             self.viewModel.panelDidClose()
         }
         if animated {
             NSAnimationContext.runAnimationGroup({ context in
                 context.duration = 0.09
                 panel.animator().alphaValue = 0
-            }, completionHandler: finish)
+            }, completionHandler: {
+                Task { @MainActor in
+                    finish()
+                }
+            })
         } else {
             finish()
         }
@@ -132,8 +159,8 @@ final class BottomPanelController: NSObject {
     private func buildPanel() {
         let hosting = NSHostingController(rootView: SnapshotBarView(viewModel: viewModel))
         let p = PanelWindow(
-            contentRect: NSRect(x: 0, y: 0, width: (NSScreen.main ?? NSScreen.screens[0]).visibleFrame.width - 32, height: 280),
-            styleMask: [.borderless],
+            contentRect: NSRect(x: 0, y: 0, width: 960, height: 268),
+            styleMask: [.borderless, .nonactivatingPanel],
             backing: .buffered,
             defer: false
         )
@@ -142,8 +169,9 @@ final class BottomPanelController: NSObject {
         p.backgroundColor = .clear
         p.hasShadow = false
         p.level = .floating
-        p.collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary]
+        p.collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary, .stationary]
         p.isReleasedWhenClosed = false
+        p.hidesOnDeactivate = false
         panel = p
     }
 }

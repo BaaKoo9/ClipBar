@@ -11,6 +11,9 @@ final class PanelViewModel: ObservableObject {
     @Published var pasteQueue: [ClipboardItem] = []
     @Published var filterKind: ClipboardItem.Kind?
     @Published var scrollRequestID: Int64?
+    /// 底部提示中的入队/出队快捷键文案，随设置变更同步。
+    @Published var enqueueHotKeyLabel = ""
+    @Published var dequeueHotKeyLabel = ""
 
     /// AppDelegate 注入：请求关闭面板（Esc、粘贴完成后等），参数为是否播放淡出动画。
     var onRequestClose: ((Bool) -> Void)?
@@ -30,9 +33,55 @@ final class PanelViewModel: ObservableObject {
     private var targetPID: pid_t?
     private var searchWorkItem: DispatchWorkItem?
     private let enqueueQueue = DispatchQueue(label: "com.huxiaolong.clipboard.enqueue")
+    private var hotKeyObserver: NSObjectProtocol?
+    private var historyLimitObserver: NSObjectProtocol?
 
     /// 面板是横向滚动条，超出这个量的历史无法被浏览，取回来只会拖慢每次刷新。
     private static let pageSize = 300
+
+    init() {
+        refreshHotKeyLabels()
+        hotKeyObserver = NotificationCenter.default.addObserver(
+            forName: .clipboardHotKeyChanged,
+            object: nil,
+            queue: .main
+        ) { [weak self] _ in
+            Task { @MainActor in
+                self?.refreshHotKeyLabels()
+            }
+        }
+        historyLimitObserver = NotificationCenter.default.addObserver(
+            forName: .clipboardHistoryLimitChanged,
+            object: nil,
+            queue: .main
+        ) { [weak self] _ in
+            Task { @MainActor in
+                self?.refresh()
+            }
+        }
+    }
+
+    deinit {
+        if let hotKeyObserver {
+            NotificationCenter.default.removeObserver(hotKeyObserver)
+        }
+        if let historyLimitObserver {
+            NotificationCenter.default.removeObserver(historyLimitObserver)
+        }
+    }
+
+    /// 从 AppSettings 刷新面板底部快捷键提示（设置页改键后即时同步）。
+    func refreshHotKeyLabels() {
+        let settings = AppSettings.shared
+        enqueueHotKeyLabel = KeyCodeMapper.displayString(
+            keyCode: settings.enqueueHotKeyCode,
+            modifiers: settings.enqueueHotKeyModifiers
+        )
+        dequeueHotKeyLabel = KeyCodeMapper.displayString(
+            keyCode: settings.dequeueHotKeyCode,
+            modifiers: settings.dequeueHotKeyModifiers
+        )
+    }
 
     // MARK: - 生命周期
 
@@ -42,15 +91,24 @@ final class PanelViewModel: ObservableObject {
         refresh()
     }
 
-    /// 面板呼出：先用已有数据立即出图，再异步刷新，避免呼出时空窗。
+    /// 面板呼出：默认回到「全部」，先按上限清理再刷新。
     func panelDidOpen() {
-        if selectedID == nil {
-            selectedID = items.first?.id
+        refreshHotKeyLabels()
+        // 每次呼出重置筛选，避免上次停在「图片/文件」等分类里造成「找不到内容」的错觉
+        if filterKind != nil {
+            filterKind = nil
         }
-        if loaded {
-            refresh()
-        } else {
-            loadHistory()
+        // 已有超量历史时，呼出即裁剪到当前上限（含设置刚改完的场景）
+        ClipboardStore.shared.enforceHistoryLimit { [weak self] in
+            guard let self else { return }
+            if self.selectedID == nil {
+                self.selectedID = self.items.first?.id
+            }
+            if self.loaded {
+                self.refresh()
+            } else {
+                self.loadHistory()
+            }
         }
     }
 
@@ -59,6 +117,8 @@ final class PanelViewModel: ObservableObject {
         if !searchText.isEmpty {
             searchText = ""
         }
+        // 关闭时清筛选，与下次呼出「全部」一致
+        filterKind = nil
     }
 
     // MARK: - 搜索与筛选
@@ -79,12 +139,14 @@ final class PanelViewModel: ObservableObject {
     private func refresh() {
         let query = searchText.trimmingCharacters(in: .whitespacesAndNewlines)
         let kind = filterKind
+        // 未置顶条目最多 historyLimit；额外留一点余量给置顶项
+        let fetchLimit = min(Self.pageSize, AppSettings.shared.historyLimit + 50)
         if query.isEmpty {
-            ClipboardStore.shared.fetchAll(kind: kind?.rawValue, limit: Self.pageSize) { [weak self] items in
+            ClipboardStore.shared.fetchAll(kind: kind?.rawValue, limit: fetchLimit) { [weak self] items in
                 DispatchQueue.main.async { self?.apply(items) }
             }
         } else {
-            ClipboardStore.shared.search(query, kind: kind?.rawValue, limit: Self.pageSize) { [weak self] items in
+            ClipboardStore.shared.search(query, kind: kind?.rawValue, limit: fetchLimit) { [weak self] items in
                 DispatchQueue.main.async { self?.apply(items) }
             }
         }

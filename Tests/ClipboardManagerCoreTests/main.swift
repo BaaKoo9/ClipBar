@@ -136,7 +136,7 @@ private func testPinnedItemSurvivesLimitCleanup() throws {
     }
     _ = semaphore.wait(timeout: .now() + 2)
 
-    // 再插入 40 条：第 100 次插入触发清理，应保留置顶 1 条 + 未置顶 3 条
+    // 再插入 40 条：每次写入都会按上限清理，应保留置顶 1 条 + 未置顶 3 条
     for i in 60..<100 {
         store.upsert(NewClipboardItem(kind: .text, text: "条目 \(i)", hash: "h\(i)"))
     }
@@ -150,6 +150,81 @@ private func testPinnedItemSurvivesLimitCleanup() throws {
     expectEqual(all.count, 4, "容量清理后应保留 3 + 1 条置顶")
     expect(all.contains { $0.id == pinnedID }, "置顶条目应保留")
 }
+
+private func testPinnedItemsSortFirst() throws {
+    let tempDir = FileManager.default.temporaryDirectory
+        .appendingPathComponent("CoreTests-\(UUID().uuidString)", isDirectory: true)
+    try FileManager.default.createDirectory(at: tempDir, withIntermediateDirectories: true)
+    defer { try? FileManager.default.removeItem(at: tempDir) }
+
+    let store = ClipboardStore(dbURL: tempDir.appendingPathComponent("test.sqlite"))
+    store.upsert(NewClipboardItem(kind: .text, text: "旧条目", hash: "old"))
+    store.upsert(NewClipboardItem(kind: .text, text: "新条目", hash: "new"))
+    waitForStore()
+
+    let semaphore = DispatchSemaphore(value: 0)
+    var before: [ClipboardItem] = []
+    store.fetchAll { items in
+        before = items
+        semaphore.signal()
+    }
+    _ = semaphore.wait(timeout: .now() + 2)
+
+    let olderID = before.first(where: { $0.hash == "old" })!.id
+    store.setPinned(id: olderID, pinned: true) {
+        semaphore.signal()
+    }
+    _ = semaphore.wait(timeout: .now() + 2)
+
+    var after: [ClipboardItem] = []
+    store.fetchAll { items in
+        after = items
+        semaphore.signal()
+    }
+    _ = semaphore.wait(timeout: .now() + 2)
+
+    expectEqual(after.first?.id, olderID, "置顶后应排在列表最前")
+    expect(after.first?.pinned == true, "首条应为置顶状态")
+}
+
+private func testHistoryLimitEnforcedStrictly() throws {
+    let tempDir = FileManager.default.temporaryDirectory
+        .appendingPathComponent("CoreTests-\(UUID().uuidString)", isDirectory: true)
+    try FileManager.default.createDirectory(at: tempDir, withIntermediateDirectories: true)
+    defer { try? FileManager.default.removeItem(at: tempDir) }
+
+    AppSettings.shared.historyLimit = 100
+    defer { AppSettings.shared.historyLimit = 5000 }
+
+    let store = ClipboardStore(dbURL: tempDir.appendingPathComponent("test.sqlite"))
+    for i in 0..<130 {
+        store.upsert(NewClipboardItem(kind: .text, text: "条目 \(i)", hash: "limit-\(i)"))
+    }
+
+    let semaphore = DispatchSemaphore(value: 0)
+    var all: [ClipboardItem] = []
+    store.fetchAll { items in
+        all = items
+        semaphore.signal()
+    }
+    _ = semaphore.wait(timeout: .now() + 3)
+
+    expectEqual(all.count, 100, "超过上限时应立即裁到 100 条")
+
+    // 调低上限后应能主动裁剪
+    AppSettings.shared.historyLimit = 50
+    store.enforceHistoryLimit {
+        semaphore.signal()
+    }
+    _ = semaphore.wait(timeout: .now() + 2)
+    store.fetchAll { items in
+        all = items
+        semaphore.signal()
+    }
+    _ = semaphore.wait(timeout: .now() + 2)
+    expectEqual(all.count, 50, "下调历史上限后应立即裁到新上限")
+}
+
 private func testClearRemovesEverything() throws {
     let tempDir = FileManager.default.temporaryDirectory
         .appendingPathComponent("CoreTests-\(UUID().uuidString)", isDirectory: true)
@@ -463,6 +538,8 @@ do {
     try testDuplicateRefreshesInsteadOfInserting()
     try testSearchMatchesText()
     try testPinnedItemSurvivesLimitCleanup()
+    try testPinnedItemsSortFirst()
+    try testHistoryLimitEnforcedStrictly()
     try testImageFilesCleanedOnClear()
     try testClearRemovesEverything()
     testPasteText()

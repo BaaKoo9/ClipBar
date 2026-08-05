@@ -176,6 +176,9 @@ struct SettingsView: View {
                 .frame(width: 110)
                 .onChange(of: historyLimit) { _, newValue in
                     AppSettings.shared.historyLimit = newValue
+                    ClipboardStore.shared.enforceHistoryLimit {
+                        NotificationCenter.default.post(name: .clipboardHistoryLimitChanged, object: nil)
+                    }
                 }
             }
 
@@ -732,4 +735,5 @@ private struct ShortcutRecorder: View {
 
 extension Notification.Name {
     static let clipboardHotKeyChanged = Notification.Name("clipboardHotKeyChanged")
+    static let clipboardHistoryLimitChanged = Notification.Name("clipboardHistoryLimitChanged")
 }

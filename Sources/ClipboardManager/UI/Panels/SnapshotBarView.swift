@@ -7,6 +7,11 @@ struct SnapshotBarView: View {
     @ObservedObject var viewModel: PanelViewModel
     @FocusState private var searchFocused: Bool
 
+    /// 所有类型统一卡片尺寸（竞品常见做法：固定宽高 + 横向滚动，不随屏幕摊扁）。
+    private static let cardWidth: CGFloat = 168
+    private static let cardHeight: CGFloat = 118
+    private static let cardSpacing: CGFloat = 10
+
     var body: some View {
         snapshotContent
     }
@@ -14,26 +19,25 @@ struct SnapshotBarView: View {
     private var snapshotContent: some View {
         VStack(spacing: 0) {
             topBar
-
             filterBar
-
             Divider()
 
-            if viewModel.items.isEmpty {
-                emptyState
-                    .frame(maxWidth: .infinity, maxHeight: .infinity)
-            } else {
-                snapshotScroller
+            // 固定内容区高度：空状态与有卡片时同高，避免切筛选时上下跳动
+            Group {
+                if viewModel.items.isEmpty {
+                    emptyState
+                } else {
+                    snapshotScroller
+                }
             }
-
-            if viewModel.pasteQueue.count > 0 {
-                queueBar
-            }
+            .frame(height: Self.cardHeight + 16)
+            .frame(maxWidth: .infinity)
 
             Divider()
             hintBar
         }
-        .frame(minWidth: 560, maxWidth: .infinity, minHeight: 260, maxHeight: 280)
+        // 入队提示改由侧边队列窗承担，面板内不再插入 queueBar，避免顶起卡片行
+        .frame(minWidth: 560, maxWidth: .infinity, minHeight: 268, maxHeight: 268)
         .background(.ultraThinMaterial)
         .clipShape(RoundedRectangle(cornerRadius: 20, style: .continuous))
         .overlay(
@@ -121,11 +125,9 @@ struct SnapshotBarView: View {
 
             Spacer()
 
-            if let count = viewModel.items.count as Int? {
-                Text("\(count) 条")
-                    .font(.system(size: 10))
-                    .foregroundStyle(.tertiary)
-            }
+            Text("\(viewModel.items.count) 条")
+                .font(.system(size: 10))
+                .foregroundStyle(.tertiary)
         }
         .padding(.horizontal, 14)
         .padding(.bottom, 8)
@@ -134,70 +136,65 @@ struct SnapshotBarView: View {
     // MARK: - 快照卡片
 
     private var snapshotScroller: some View {
-        GeometryReader { geo in
-            ScrollViewReader { proxy in
-                ScrollView(.horizontal, showsIndicators: false) {
-                    LazyHStack(spacing: 10) {
-                        ForEach(viewModel.items) { item in
-                            SnapshotCard(
-                                item: item,
-                                isSelected: item.id == viewModel.selectedID,
-                                highlight: viewModel.searchText.trimmingCharacters(in: .whitespacesAndNewlines),
-                                onEnqueue: {
-                                    viewModel.selectedID = item.id
-                                    viewModel.enqueueSelected()
+        ScrollViewReader { proxy in
+            ScrollView(.horizontal, showsIndicators: false) {
+                LazyHStack(alignment: .center, spacing: Self.cardSpacing) {
+                    ForEach(viewModel.items) { item in
+                        SnapshotCard(
+                            item: item,
+                            isSelected: item.id == viewModel.selectedID,
+                            highlight: viewModel.searchText.trimmingCharacters(in: .whitespacesAndNewlines),
+                            onSelect: {
+                                viewModel.selectedID = item.id
+                                viewModel.pasteSelected()
+                            },
+                            onEnqueue: {
+                                viewModel.selectedID = item.id
+                                viewModel.enqueueSelected()
+                            },
+                            onDelete: {
+                                viewModel.deleteItem(item)
+                            },
+                            onTogglePin: {
+                                viewModel.togglePin(item)
+                            }
+                        )
+                        .frame(width: Self.cardWidth, height: Self.cardHeight)
+                        .id(item.id)
+                        .contextMenu {
+                            if item.kind == .link, let text = item.text, let url = URL(string: text) {
+                                Button("打开链接") {
+                                    NSWorkspace.shared.open(url)
                                 }
-                            )
-                            .frame(width: Self.cardWidth(for: geo.size.width, count: viewModel.items.count), height: 108)
-                            .contentShape(Rectangle())
-                            .gesture(
-                                SpatialTapGesture()
-                                    .onEnded { _ in
-                                        let isCommand = (NSApp.currentEvent?.modifierFlags.contains(.command) == true)
-                                            || NSEvent.modifierFlags.contains(.command)
-                                        if isCommand {
-                                            viewModel.selectedID = item.id
-                                            viewModel.enqueueSelected()
-                                        } else {
-                                            // 单击直接粘贴（CleanClip 风格）
-                                            viewModel.selectedID = item.id
-                                            viewModel.pasteSelected()
-                                        }
-                                    }
-                            )
-                            .contextMenu {
-                                if item.kind == .link, let text = item.text, let url = URL(string: text) {
-                                    Button("打开链接") {
-                                        NSWorkspace.shared.open(url)
-                                    }
+                            }
+                            if item.kind == .file, let first = item.filePaths.first {
+                                Button("在 Finder 中显示") {
+                                    NSWorkspace.shared.activateFileViewerSelecting([URL(fileURLWithPath: first)])
                                 }
-                                if item.kind == .file, let first = item.filePaths.first {
-                                    Button("在 Finder 中显示") {
-                                        NSWorkspace.shared.activateFileViewerSelecting([URL(fileURLWithPath: first)])
-                                    }
-                                }
-                                Button(item.pinned ? "取消置顶" : "置顶") {
-                                    viewModel.togglePin(item)
-                                }
-                                Button("加入粘贴队列") {
-                                    viewModel.selectedID = item.id
-                                    viewModel.enqueueSelected()
-                                }
-                                Button("粘贴") {
-                                    viewModel.selectedID = item.id
-                                    viewModel.pasteSelected()
-                                }
-                                Button("删除", role: .destructive) {
-                                    viewModel.deleteItem(item)
-                                }
+                            }
+                            Button(item.pinned ? "取消置顶" : "置顶") {
+                                viewModel.togglePin(item)
+                            }
+                            Button("加入粘贴队列") {
+                                viewModel.selectedID = item.id
+                                viewModel.enqueueSelected()
+                            }
+                            Button("粘贴") {
+                                viewModel.selectedID = item.id
+                                viewModel.pasteSelected()
+                            }
+                            Button("删除", role: .destructive) {
+                                viewModel.deleteItem(item)
                             }
                         }
                     }
-                    .padding(.horizontal, 14)
-                    .padding(.vertical, 4)
                 }
-                .onChange(of: viewModel.scrollRequestID) { _, newID in
-                    if let newID {
+                .padding(.horizontal, 14)
+                .padding(.vertical, 8)
+            }
+            .onChange(of: viewModel.scrollRequestID) { _, newID in
+                if let newID {
+                    withAnimation(.easeOut(duration: 0.12)) {
                         proxy.scrollTo(newID, anchor: .center)
                     }
                 }
@@ -205,54 +202,30 @@ struct SnapshotBarView: View {
         }
     }
 
-    /// 卡片宽度：条目少时摊宽铺满，条目多时收敛到最小宽度横向滚动。
-    private static func cardWidth(for total: CGFloat, count: Int) -> CGFloat {
-        let safeCount = max(count, 1)
-        let gaps = CGFloat(safeCount - 1) * 10
-        let natural = (total - 28 - gaps) / CGFloat(safeCount)
-        return min(max(natural, 140), 260)
-    }
-
-    // MARK: - 队列条
-
-    private var queueBar: some View {
-        HStack(spacing: 8) {
-            Image(systemName: "list.number")
-                .font(.system(size: 11))
-                .foregroundStyle(Color.accentColor)
-            Text("待粘贴队列 \(viewModel.pasteQueue.count) 项")
-                .font(.system(size: 11, weight: .medium))
-            Text("按出队快捷键逐个粘贴")
-                .font(.system(size: 10))
-                .foregroundStyle(.tertiary)
-            Spacer()
-            Button {
-                viewModel.clearQueue()
-            } label: {
-                Image(systemName: "xmark.circle.fill")
-                    .font(.system(size: 14))
-                    .foregroundStyle(.secondary)
-                    .frame(width: 32, height: 32)
-                    .contentShape(Rectangle())
-            }
-            .buttonStyle(.plain)
-            .help("清空队列")
-        }
-        .padding(.horizontal, 14)
-        .padding(.vertical, 5)
-        .background(Color.accentColor.opacity(0.08))
-    }
-
     // MARK: - 空状态 / 提示
 
     private var emptyState: some View {
         VStack(spacing: 8) {
-            Image(systemName: "doc.on.clipboard")
+            Image(systemName: "rectangle.stack")
                 .font(.system(size: 24))
                 .foregroundStyle(.tertiary)
-            Text(viewModel.searchText.isEmpty ? "复制内容会显示在这里" : "没有匹配的结果")
+            Text(emptyStateMessage)
                 .font(.system(size: 13))
                 .foregroundStyle(.secondary)
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+    }
+
+    private var emptyStateMessage: String {
+        if !viewModel.searchText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            return "没有匹配的结果"
+        }
+        switch viewModel.filterKind {
+        case .text: return "暂无文本记录"
+        case .link: return "暂无链接记录"
+        case .image: return "暂无图片记录"
+        case .file: return "暂无文件记录"
+        case nil: return "复制内容会显示在这里"
         }
     }
 
@@ -263,8 +236,14 @@ struct SnapshotBarView: View {
             Text("⌘+点击/⌘↵ 入队")
             Text("Esc 关闭")
             Spacer()
-            Text("⌥⌘E 入队复制 · ⌥⌘D 出队粘贴")
-                .foregroundStyle(.tertiary)
+            if viewModel.pasteQueue.count > 0 {
+                Text("队列 \(viewModel.pasteQueue.count) 项 · 侧边窗可查看")
+                    .foregroundStyle(Color.primary.opacity(0.78))
+                    .fontWeight(.medium)
+            } else {
+                Text("\(viewModel.enqueueHotKeyLabel) 入队 · \(viewModel.dequeueHotKeyLabel) 出队")
+                    .foregroundStyle(.secondary)
+            }
         }
         .font(.system(size: 10))
         .foregroundStyle(.secondary)
@@ -299,68 +278,99 @@ private struct SnapshotCard: View {
     let item: ClipboardItem
     let isSelected: Bool
     let highlight: String
+    var onSelect: () -> Void
     var onEnqueue: () -> Void
+    var onDelete: () -> Void
+    var onTogglePin: () -> Void
     @State private var isHovering = false
 
     var body: some View {
         VStack(alignment: .leading, spacing: 6) {
-            // 顶部行：类型标记 + 置顶 + 入队按钮
-            HStack(spacing: 5) {
-                if item.kind != .image {
-                    Image(systemName: iconName)
-                        .font(.system(size: 11, weight: .medium))
-                        .foregroundStyle(isSelected ? .white : Color.secondary)
-                    Text(typeLabel)
-                        .font(.system(size: 10, weight: .medium))
-                        .foregroundStyle(isSelected ? Color.white.opacity(0.85) : Color.secondary)
-                }
-                Spacer(minLength: 0)
-                if item.pinned {
-                    Image(systemName: "pin.fill")
-                        .font(.system(size: 9))
-                        .foregroundStyle(isSelected ? .white : .orange)
-                }
-                if isHovering && !isSelected {
-                    Button(action: onEnqueue) {
-                        Image(systemName: "list.badge.plus")
-                            .font(.system(size: 10, weight: .semibold))
-                            .foregroundStyle(Color.accentColor)
-                            .frame(width: 20, height: 20)
-                            .background(Color.white.opacity(0.9), in: Circle())
-                    }
-                    .buttonStyle(.plain)
-                    .help("加入粘贴队列")
-                }
-            }
-
-            if item.kind == .image {
-                // 图片：主体铺满缩略图，不再重复显示“图片”文字
-                Spacer(minLength: 0)
-                SnapshotThumbnail(path: item.imagePath, size: 96)
-                    .frame(maxWidth: .infinity, maxHeight: .infinity)
-                Spacer(minLength: 0)
-            } else {
-                Text(highlightedPreview)
-                    .font(.system(size: 12))
-                    .lineLimit(4)
-                    .foregroundStyle(isSelected ? .white : .primary)
-                Spacer(minLength: 0)
-            }
+            headerRow
+            contentBody
         }
         .padding(10)
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
         .background(
-            isSelected ? Color.accentColor : (isHovering ? Color.white.opacity(0.7) : Color.white.opacity(0.5))
+            isSelected
+                ? Color.accentColor
+                : (isHovering ? Color.primary.opacity(0.08) : Color.primary.opacity(0.04))
         )
         .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
         .overlay(
             RoundedRectangle(cornerRadius: 14, style: .continuous)
-                .stroke(isSelected ? Color.accentColor : Color.primary.opacity(0.1), lineWidth: isSelected ? 2 : 1)
+                .stroke(
+                    isSelected ? Color.accentColor : Color.primary.opacity(isHovering ? 0.16 : 0.08),
+                    lineWidth: isSelected ? 2 : 1
+                )
         )
-        .scaleEffect(isHovering && !isSelected ? 1.02 : 1)
-        .animation(.easeOut(duration: 0.15), value: isHovering)
+        .contentShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
+        .onTapGesture {
+            let isCommand = NSEvent.modifierFlags.contains(.command)
+                || (NSApp.currentEvent?.modifierFlags.contains(.command) == true)
+            if isCommand {
+                onEnqueue()
+            } else {
+                onSelect()
+            }
+        }
         .onHover { hovering in
             isHovering = hovering
+        }
+        .animation(.easeOut(duration: 0.12), value: isHovering)
+        .animation(.easeOut(duration: 0.12), value: isSelected)
+    }
+
+    private var headerRow: some View {
+        HStack(spacing: 4) {
+            Image(systemName: iconName)
+                .font(.system(size: 10, weight: .semibold))
+                .foregroundStyle(isSelected ? Color.white.opacity(0.9) : Color.secondary)
+            Text(typeLabel)
+                .font(.system(size: 10, weight: .medium))
+                .foregroundStyle(isSelected ? Color.white.opacity(0.85) : Color.secondary)
+
+            if item.pinned {
+                Image(systemName: "pin.fill")
+                    .font(.system(size: 9))
+                    .foregroundStyle(isSelected ? .white : .orange)
+            }
+
+            Spacer(minLength: 0)
+
+            if isHovering {
+                HStack(spacing: 4) {
+                    CardIconButton(
+                        systemName: item.pinned ? "pin.slash" : "pin",
+                        help: item.pinned ? "取消置顶" : "置顶",
+                        isSelected: isSelected,
+                        action: onTogglePin
+                    )
+                    CardIconButton(
+                        systemName: "xmark",
+                        help: "删除",
+                        isSelected: isSelected,
+                        action: onDelete
+                    )
+                }
+            }
+        }
+        .frame(height: 20)
+    }
+
+    @ViewBuilder
+    private var contentBody: some View {
+        if item.kind == .image {
+            SnapshotThumbnail(path: item.imagePath)
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+        } else {
+            Text(highlightedPreview)
+                .font(.system(size: 12))
+                .lineLimit(4)
+                .lineSpacing(1)
+                .multilineTextAlignment(.leading)
+                .foregroundStyle(isSelected ? .white : .primary)
+                .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
         }
     }
 
@@ -402,31 +412,57 @@ private struct SnapshotCard: View {
     }
 }
 
+private struct CardIconButton: View {
+    let systemName: String
+    let help: String
+    let isSelected: Bool
+    let action: () -> Void
+
+    var body: some View {
+        Button(action: action) {
+            Image(systemName: systemName)
+                .font(.system(size: 9, weight: .bold))
+                .foregroundStyle(isSelected ? Color.accentColor : Color.primary.opacity(0.75))
+                .frame(width: 20, height: 20)
+                .background(
+                    (isSelected ? Color.white : Color.primary.opacity(0.08)),
+                    in: Circle()
+                )
+        }
+        .buttonStyle(.plain)
+        .help(help)
+    }
+}
+
 private struct SnapshotThumbnail: View {
     let path: String?
-    let size: CGFloat
     @State private var image: NSImage?
 
     private static let cache = NSCache<NSString, NSImage>()
 
     var body: some View {
-        Group {
-            if let image {
-                Image(nsImage: image)
-                    .resizable()
-                    .aspectRatio(contentMode: .fit)
-            } else {
-                RoundedRectangle(cornerRadius: 7)
-                    .fill(Color.primary.opacity(0.08))
-                    .overlay {
-                        Image(systemName: "photo")
-                            .font(.system(size: 14))
-                            .foregroundStyle(.tertiary)
-                    }
+        GeometryReader { geo in
+            ZStack {
+                RoundedRectangle(cornerRadius: 8, style: .continuous)
+                    .fill(Color.primary.opacity(0.06))
+
+                if let image {
+                    // 等比缩放入框，不裁切、不拉伸，留白由背景承接
+                    Image(nsImage: image)
+                        .resizable()
+                        .interpolation(.high)
+                        .aspectRatio(contentMode: .fit)
+                        .frame(width: geo.size.width, height: geo.size.height)
+                } else {
+                    Image(systemName: "photo")
+                        .font(.system(size: 16))
+                        .foregroundStyle(.tertiary)
+                }
             }
+            .frame(width: geo.size.width, height: geo.size.height)
+            .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
         }
-        .frame(minWidth: size, idealWidth: 96, maxWidth: .infinity, minHeight: size, idealHeight: 96, maxHeight: .infinity)
-        .clipShape(RoundedRectangle(cornerRadius: 8))
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
         .task(id: path) {
             guard let path else { return }
             if let cached = Self.cache.object(forKey: path as NSString) {
