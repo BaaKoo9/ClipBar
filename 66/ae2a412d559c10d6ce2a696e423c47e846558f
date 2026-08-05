@@ -1,0 +1,48 @@
+README.md
+  s_d8048c9cf9bfc5::t_4abb313d195f1c 7-12,23,29-41,43,64,80,89
+Sources/ClipboardManagerCore/Services/HotKeyService.swift
+  s_d8048c9cf9bfc5::t_c3711c04f5259f 153-158
+  s_d8048c9cf9bfc5::t_54b897ab76e4cc 181,184,186
+  s_d8048c9cf9bfc5::t_dedb328eed68e0 291
+  s_d8048c9cf9bfc5::t_5f17c38c2bdfd4 2,6,23,25-26,30-52,55-56,58-59,67,69,72-74,88-89,99,103-105,110,136,141-142,152,160,162,177-178,182-183,185,193,204,219-241,248,256-259,261-265,268-290,292-338,341-342,350-354,358,370-371,373-374,378,391-392,402-404,422-423,432,478-486,505,516-525,527-539,542
+Resources/Info.plist
+  s_d8048c9cf9bfc5::t_0b03b332c2324e 22
+  s_d8048c9cf9bfc5::t_2a40b7fa1d1975 24
+README_CN.md
+  s_d8048c9cf9bfc5::t_aaa6ed245f8aa3 5-10,21,27-39,41,62,78,87
+Sources/ClipboardManager/UI/Panels/BottomPanelController.swift
+  s_d8048c9cf9bfc5::t_441f49fb3610af 12-13,19,26-32,46-50,73,108,113
+Sources/ClipboardManager/UI/AboutView.swift
+  s_d8048c9cf9bfc5::t_4c05ae6363d34a 26-45,47,49-51,85-89,91-104,106-108,125-132
+Sources/ClipboardManager/UI/SettingsView.swift
+  s_d8048c9cf9bfc5::t_1ace2688919e31 17
+  s_d8048c9cf9bfc5::t_86118db3428e1a 64
+  s_d8048c9cf9bfc5::t_3be9361c9c7493 228,231-233,235-260,264-268,271-272,275-292,295-300,303-315,321,323-324,327,329,335-336,339,345-358
+  s_d8048c9cf9bfc5::t_ca36ca870c52b3 269-270,273
+  s_d8048c9cf9bfc5::t_06482f58bab563 400-652
+Sources/ClipboardManager/AppDelegate.swift
+  s_d8048c9cf9bfc5::t_78c9ab60ab5876 145-150
+  s_d8048c9cf9bfc5::t_6c532ecc023e1b 109
+  s_d8048c9cf9bfc5::t_95ac0baa2bad51 211-217
+  s_d8048c9cf9bfc5::t_16b694c27704c9 102-105,112,115-129,131-132,134,137
+  s_d8048c9cf9bfc5::t_b035dfb3f9e367 10-12,29,39-41,56,61-62,70,72,74-75,79-101,106-108,110-111,113-114,130,133,135-136,138-144,151-166
+  s_d8048c9cf9bfc5::t_2acee534211bed 167
+Package.swift
+  s_d8048c9cf9bfc5::t_ddeee62a2cbf97 14-16
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.18",
+  "base_commit_sha": "66ae2a412d559c10d6ce2a696e423c47e846558f",
+  "prompts": {},
+  "sessions": {
+    "s_d8048c9cf9bfc5": {
+      "agent_id": {
+        "tool": "cursor",
+        "id": "aecfab03-5415-43b3-9ac9-22547c4c79c5",
+        "model": "grok-4.5"
+      },
+      "human_author": "BaaKoo <hu1529508986@gmail.com>"
+    }
+  }
+}
