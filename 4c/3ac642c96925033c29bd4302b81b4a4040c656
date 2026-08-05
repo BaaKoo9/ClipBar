@@ -1,0 +1,92 @@
+Sources/ClipboardManager/UI/PanelViewModel.swift
+  s_d8048c9cf9bfc5::t_c9aa3c78759e93 37,53-61,67-69
+  s_d8048c9cf9bfc5::t_de02ced351725b 94,101-111
+  s_d8048c9cf9bfc5::t_df31b8b2e913aa 97-99,120-121
+  s_d8048c9cf9bfc5::t_43a70b89214369 14-16,36,42-52,62-66,70-85,96
+  s_d8048c9cf9bfc5::t_f8d37657e1dc56 142-143,145,149
+Resources/Info.plist
+  s_d8048c9cf9bfc5::t_572dd25b016f93 24
+  s_d8048c9cf9bfc5::t_d339513c35ae54 22
+Sources/ClipboardManagerCore/Services/ClipboardStore.swift
+  s_d8048c9cf9bfc5::t_78f2c1bb1945f3 255
+  s_d8048c9cf9bfc5::t_b3a6b177aad91a 358-359,391
+  s_d8048c9cf9bfc5::t_3a2d91ea5d6da9 277,279-297,313-320
+  s_d8048c9cf9bfc5::t_d16f135df74956 321-322
+Sources/ClipboardManager/UI/Panels/ToastWindowController.swift
+  s_d8048c9cf9bfc5::t_aeead77f3b2ab1 218,225,292
+  s_d8048c9cf9bfc5::t_2edb3366627cdb 81-91,96-100,106-109,126,138,289
+  s_d8048c9cf9bfc5::t_9931890d5e39d9 192,199,215,237-258,261-268,273,282-288
+  s_d8048c9cf9bfc5::t_fbcceee6095fa3 216,290
+Sources/ClipboardManager/Services/UpdateChecker.swift
+  s_d8048c9cf9bfc5::t_e62433129d0a26 1-5,7-8,21,23-78,80-89,91-93,95-96,98-110,112,114-120,191-193,195-198,239,241-249,251-324,328-330,335,337-338,343-346
+  s_d8048c9cf9bfc5::t_ed4a07649c018f 166-189
+  s_d8048c9cf9bfc5::t_b242072a024af0 134,139,142,156,160
+  s_d8048c9cf9bfc5::t_fc20a798b722de 6,9-20,22,79,90,94,97,111,113,121-131,133,136-137,140-141,143-144,155,157-159,161-165,190,194,199-238,240,250,325-327,331-334,336,339-342
+  s_d8048c9cf9bfc5::t_beca8ee26892a7 132,135,138,145-154
+Sources/ClipboardManager/UI/SettingsView.swift
+  s_d8048c9cf9bfc5::t_42e9d6da1dd7a5 179-181
+  s_d8048c9cf9bfc5::t_5a59ec3f32421a 738
+.gitignore
+  h_975d8ffbcf38f6 72-73
+  s_d8048c9cf9bfc5::t_6a7033d6a42db8 74-76
+Sources/ClipboardManagerCore/Services/HotKeyService.swift
+  s_d8048c9cf9bfc5::t_5daca6c2b186c7 548
+  s_d8048c9cf9bfc5::t_e5cd476b68ad48 95-96
+  s_d8048c9cf9bfc5::t_7ceb292004e4ff 127,130
+  s_d8048c9cf9bfc5::t_71df561e7544ca 68
+  s_d8048c9cf9bfc5::t_f937ededac486b 122-126,128-129,131-132
+  s_d8048c9cf9bfc5::t_4236eed49c5fc6 156-157
+  s_d8048c9cf9bfc5::t_b1b551b9525460 504,549-557
+  s_d8048c9cf9bfc5::t_126163da0ceec8 558-559
+scripts/install-local.sh
+  s_d8048c9cf9bfc5::t_4840aa12ae05bc 1-28
+  s_d8048c9cf9bfc5::t_ccf0d7ffe7c505 29-32
+Sources/ClipboardManager/AppDelegate.swift
+  s_d8048c9cf9bfc5::t_9712112e54cd0b 291,318,321-324,326-328
+  s_d8048c9cf9bfc5::t_12d229a807b094 269-271,281,289-290
+  s_d8048c9cf9bfc5::t_4f27fe3ca7e096 252
+  s_d8048c9cf9bfc5::t_9bd2a175ef0841 233
+  s_d8048c9cf9bfc5::t_fb3a9eed7457fd 319-320,325
+  s_d8048c9cf9bfc5::t_4411d6d019084c 292
+Sources/ClipboardManager/UI/Panels/SnapshotBarView.swift
+  s_d8048c9cf9bfc5::t_d0edaa14005e1d 10-14,39-40,128-130,139-167,169-172,175-188,192-197,209,239-240,243,246,281,283-284,289-290,295-297,302-305,307-316,320-374,415-434,447,465
+  s_d8048c9cf9bfc5::t_1557197e1c9d52 25-31,33-34
+  s_d8048c9cf9bfc5::t_4f82ea1b8436aa 212,216-229
+  s_d8048c9cf9bfc5::t_d4b4ec98913e14 241-242,244-245
+  s_d8048c9cf9bfc5::t_3667f2d1bbe26f 444-446,448-460,462-463
+  s_d8048c9cf9bfc5::t_61dd98a2fcdc46 435-436
+Sources/ClipboardManager/UI/Panels/BottomPanelController.swift
+  s_d8048c9cf9bfc5::t_bb5bb0f13d90b3 77
+  s_d8048c9cf9bfc5::t_c8e66e391e1084 78
+  s_d8048c9cf9bfc5::t_3b4e6ecf1c454c 28-35,57-60,72-76,85,87-107,113,115-122,124,142,149-153,163,172,174
+  s_d8048c9cf9bfc5::t_14f6dd8826b8a4 82
+  s_d8048c9cf9bfc5::t_a41b93003cc88b 162
+  s_d8048c9cf9bfc5::t_5edd12c2b448dd 14-15
+Tests/ClipboardManagerCoreTests/main.swift
+  s_d8048c9cf9bfc5::t_21c25dde122da5 541
+  s_d8048c9cf9bfc5::t_690cf2ef423cb7 542
+  s_d8048c9cf9bfc5::t_a63cedb24e1331 153-189
+  s_d8048c9cf9bfc5::t_10d752221105ef 190-227
+  s_d8048c9cf9bfc5::t_33f3f3f63aa4be 139
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.18",
+  "base_commit_sha": "4c3ac642c96925033c29bd4302b81b4a4040c656",
+  "prompts": {},
+  "humans": {
+    "h_975d8ffbcf38f6": {
+      "author": "BaaKoo <hu1529508986@gmail.com>"
+    }
+  },
+  "sessions": {
+    "s_d8048c9cf9bfc5": {
+      "agent_id": {
+        "tool": "cursor",
+        "id": "aecfab03-5415-43b3-9ac9-22547c4c79c5",
+        "model": "grok-4.5"
+      },
+      "human_author": "BaaKoo <hu1529508986@gmail.com>"
+    }
+  }
+}
