@@ -1,23 +1,27 @@
 #!/bin/bash
 set -euo pipefail
 
-# 本地调试安装：仅替换 /Applications/Clipboard Manager.app，不生成 pkg/dmg，不留下多余安装副本。
+# 本地调试安装：仅替换 /Applications/ClipBar.app，不生成 pkg/dmg，不留下多余安装副本。
 
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
-APP_NAME="Clipboard Manager"
+APP_NAME="ClipBar"
 APP_SRC="$ROOT/dist/$APP_NAME.app"
 APP_DST="/Applications/$APP_NAME.app"
+LEGACY_DST="/Applications/Clipboard Manager.app"
 
 cd "$ROOT"
 ./scripts/build-app.sh "${1:-release}"
 
+pkill -x "ClipBar" 2>/dev/null || true
 pkill -x "Clipboard Manager" 2>/dev/null || true
 sleep 0.3
 
-rm -rf "$APP_DST"
+rm -rf "$APP_DST" "$LEGACY_DST"
 cp -R "$APP_SRC" "$APP_DST"
 
-if security find-identity -p codesigning 2>/dev/null | grep -q "Clipboard Manager Dev"; then
+if security find-identity -p codesigning 2>/dev/null | grep -q "ClipBar Dev"; then
+    codesign --force --deep --sign "ClipBar Dev" "$APP_DST"
+elif security find-identity -p codesigning 2>/dev/null | grep -q "Clipboard Manager Dev"; then
     codesign --force --deep --sign "Clipboard Manager Dev" "$APP_DST"
 else
     codesign --force --deep --sign - "$APP_DST"

@@ -6,11 +6,21 @@ import SwiftUI
 struct SnapshotBarView: View {
     @ObservedObject var viewModel: PanelViewModel
     @FocusState private var searchFocused: Bool
+    @State private var showAddLabel = false
+    @State private var newLabelName = ""
+    @State private var newLabelColor = "blue"
+    @State private var draggingLabelID: Int64?
+    @State private var editingLabel: ClipboardLabel?
+    @State private var editLabelName = ""
+    @State private var editLabelColor = "blue"
+    @State private var labelPendingDelete: ClipboardLabel?
 
-    /// 所有类型统一卡片尺寸（竞品常见做法：固定宽高 + 横向滚动，不随屏幕摊扁）。
-    private static let cardWidth: CGFloat = 168
-    private static let cardHeight: CGFloat = 118
+    /// 所有类型统一卡片尺寸（略回正，避免偏瘦高）。
+    private static let cardWidth: CGFloat = 152
+    private static let cardHeight: CGFloat = 140
     private static let cardSpacing: CGFloat = 10
+    /// 与 BottomPanelController 保持一致。
+    static let panelHeight: CGFloat = 310
 
     var body: some View {
         snapshotContent
@@ -37,14 +47,31 @@ struct SnapshotBarView: View {
             hintBar
         }
         // 入队提示改由侧边队列窗承担，面板内不再插入 queueBar，避免顶起卡片行
-        .frame(minWidth: 560, maxWidth: .infinity, minHeight: 268, maxHeight: 268)
-        .background(.ultraThinMaterial)
+        .frame(minWidth: 560, maxWidth: .infinity, minHeight: Self.panelHeight, maxHeight: Self.panelHeight)
+        .background {
+            ZStack {
+                RoundedRectangle(cornerRadius: 20, style: .continuous)
+                    .fill(.regularMaterial)
+                RoundedRectangle(cornerRadius: 20, style: .continuous)
+                    .fill(
+                        LinearGradient(
+                            colors: [
+                                Color.primary.opacity(0.06),
+                                Color.clear,
+                                Color.accentColor.opacity(0.04)
+                            ],
+                            startPoint: .topLeading,
+                            endPoint: .bottomTrailing
+                        )
+                    )
+            }
+        }
         .clipShape(RoundedRectangle(cornerRadius: 20, style: .continuous))
         .overlay(
             RoundedRectangle(cornerRadius: 20, style: .continuous)
-                .stroke(Color.primary.opacity(0.08), lineWidth: 1)
+                .stroke(Color.primary.opacity(0.10), lineWidth: 1)
         )
-        .shadow(color: Color.black.opacity(0.18), radius: 40, y: 14)
+        .shadow(color: Color.black.opacity(0.22), radius: 36, y: 12)
         .onAppear {
             searchFocused = true
         }
@@ -107,30 +134,217 @@ struct SnapshotBarView: View {
 
     private var filterBar: some View {
         HStack(spacing: 6) {
-            FilterChip(title: "全部", isSelected: viewModel.filterKind == nil) {
-                viewModel.setFilter(nil)
-            }
-            FilterChip(title: "文本", isSelected: viewModel.filterKind == .text) {
-                viewModel.setFilter(.text)
-            }
-            FilterChip(title: "链接", isSelected: viewModel.filterKind == .link) {
-                viewModel.setFilter(.link)
-            }
-            FilterChip(title: "图片", isSelected: viewModel.filterKind == .image) {
-                viewModel.setFilter(.image)
-            }
-            FilterChip(title: "文件", isSelected: viewModel.filterKind == .file) {
-                viewModel.setFilter(.file)
-            }
+            ScrollView(.horizontal, showsIndicators: false) {
+                HStack(spacing: 6) {
+                    FilterChip(title: "全部", isSelected: viewModel.filterKind == nil && viewModel.filterLabelID == nil) {
+                        viewModel.setFilter(nil)
+                        viewModel.setLabelFilter(nil)
+                    }
+                    FilterChip(title: "文本", isSelected: viewModel.filterKind == .text) {
+                        viewModel.setLabelFilter(nil)
+                        viewModel.setFilter(.text)
+                    }
+                    FilterChip(title: "链接", isSelected: viewModel.filterKind == .link) {
+                        viewModel.setLabelFilter(nil)
+                        viewModel.setFilter(.link)
+                    }
+                    FilterChip(title: "图片", isSelected: viewModel.filterKind == .image) {
+                        viewModel.setLabelFilter(nil)
+                        viewModel.setFilter(.image)
+                    }
+                    FilterChip(title: "文件", isSelected: viewModel.filterKind == .file) {
+                        viewModel.setLabelFilter(nil)
+                        viewModel.setFilter(.file)
+                    }
 
-            Spacer()
+                    ForEach(viewModel.labels) { label in
+                        FilterChip(
+                            title: label.name,
+                            isSelected: viewModel.filterLabelID == label.id,
+                            tint: LabelColor.color(for: label.color)
+                        ) {
+                            if viewModel.filterLabelID == label.id {
+                                viewModel.setLabelFilter(nil)
+                            } else {
+                                viewModel.setFilter(nil)
+                                viewModel.setLabelFilter(label.id)
+                            }
+                        }
+                        .opacity(draggingLabelID == label.id ? 0.4 : 1)
+                        .onDrag {
+                            draggingLabelID = label.id
+                            return NSItemProvider(object: NSString(string: "label:\(label.id)"))
+                        }
+                        .onDrop(
+                            of: [.text],
+                            delegate: LabelReorderDropDelegate(
+                                targetID: label.id,
+                                draggingID: $draggingLabelID,
+                                onHover: { dragging, target in
+                                    withAnimation(.interactiveSpring(response: 0.22, dampingFraction: 0.86)) {
+                                        viewModel.moveLabel(draggingID: dragging, before: target)
+                                    }
+                                },
+                                onDrop: {
+                                    viewModel.commitLabelOrder()
+                                    draggingLabelID = nil
+                                }
+                            )
+                        )
+                        .contextMenu {
+                            Button("编辑…") {
+                                editingLabel = label
+                                editLabelName = label.name
+                                editLabelColor = label.color
+                            }
+                            Button("删除…", role: .destructive) {
+                                labelPendingDelete = label
+                            }
+                        }
+                    }
+
+                    Button {
+                        newLabelName = ""
+                        newLabelColor = "blue"
+                        showAddLabel = true
+                    } label: {
+                        Image(systemName: "plus")
+                            .font(.system(size: 11, weight: .semibold))
+                            .foregroundStyle(.secondary)
+                            .frame(width: 24, height: 24)
+                            .background(Color.primary.opacity(0.08), in: Circle())
+                    }
+                    .buttonStyle(.plain)
+                    .help("新建标签")
+                    .popover(isPresented: $showAddLabel, arrowEdge: .bottom) {
+                        addLabelPopover
+                    }
+                    .onDrop(
+                        of: [.text],
+                        delegate: LabelReorderDropDelegate(
+                            targetID: nil,
+                            draggingID: $draggingLabelID,
+                            onHover: { dragging, target in
+                                withAnimation(.interactiveSpring(response: 0.22, dampingFraction: 0.86)) {
+                                    viewModel.moveLabel(draggingID: dragging, before: target)
+                                }
+                            },
+                            onDrop: {
+                                viewModel.commitLabelOrder()
+                                draggingLabelID = nil
+                            }
+                        )
+                    )
+                }
+                .padding(.leading, 14)
+                .padding(.trailing, 8)
+            }
 
             Text("\(viewModel.items.count) 条")
                 .font(.system(size: 10))
                 .foregroundStyle(.tertiary)
+                .padding(.trailing, 14)
         }
-        .padding(.horizontal, 14)
         .padding(.bottom, 8)
+        .popover(isPresented: Binding(
+            get: { editingLabel != nil },
+            set: { if !$0 { editingLabel = nil } }
+        ), arrowEdge: .bottom) {
+            editLabelPopover
+        }
+        .alert(
+            "删除标签",
+            isPresented: Binding(
+                get: { labelPendingDelete != nil },
+                set: { if !$0 { labelPendingDelete = nil } }
+            ),
+            presenting: labelPendingDelete
+        ) { label in
+            Button("取消", role: .cancel) { labelPendingDelete = nil }
+            Button("删除", role: .destructive) {
+                viewModel.deleteLabel(id: label.id)
+                labelPendingDelete = nil
+            }
+        } message: { label in
+            Text("确定删除「\(label.name)」？已打在条目上的该标签也会移除。")
+        }
+    }
+
+    private var addLabelPopover: some View {
+        labelEditorPopover(
+            title: "新建标签",
+            name: $newLabelName,
+            color: $newLabelColor,
+            confirmTitle: "添加",
+            onCancel: { showAddLabel = false },
+            onConfirm: {
+                let name = newLabelName.trimmingCharacters(in: .whitespacesAndNewlines)
+                guard !name.isEmpty else { return }
+                viewModel.createLabel(name: name, color: newLabelColor)
+                showAddLabel = false
+            }
+        )
+    }
+
+    private var editLabelPopover: some View {
+        labelEditorPopover(
+            title: "编辑标签",
+            name: $editLabelName,
+            color: $editLabelColor,
+            confirmTitle: "保存",
+            onCancel: { editingLabel = nil },
+            onConfirm: {
+                guard let label = editingLabel else { return }
+                let name = editLabelName.trimmingCharacters(in: .whitespacesAndNewlines)
+                guard !name.isEmpty else { return }
+                viewModel.updateLabel(id: label.id, name: name, color: editLabelColor)
+                editingLabel = nil
+            }
+        )
+    }
+
+    private func labelEditorPopover(
+        title: String,
+        name: Binding<String>,
+        color: Binding<String>,
+        confirmTitle: String,
+        onCancel: @escaping () -> Void,
+        onConfirm: @escaping () -> Void
+    ) -> some View {
+        VStack(alignment: .leading, spacing: 10) {
+            Text(title)
+                .font(.system(size: 12, weight: .semibold))
+            TextField("名称", text: name)
+                .textFieldStyle(.roundedBorder)
+                .frame(width: 200)
+            HStack(spacing: 8) {
+                ForEach(ClipboardLabel.presetColors, id: \.self) { preset in
+                    Button {
+                        color.wrappedValue = preset
+                    } label: {
+                        Circle()
+                            .fill(LabelColor.color(for: preset))
+                            .frame(width: 18, height: 18)
+                            .overlay(
+                                Circle().stroke(
+                                    Color.primary.opacity(color.wrappedValue == preset ? 0.55 : 0.12),
+                                    lineWidth: color.wrappedValue == preset ? 2 : 1
+                                )
+                            )
+                    }
+                    .buttonStyle(.plain)
+                }
+            }
+            HStack {
+                Spacer()
+                Button("取消", action: onCancel)
+                    .buttonStyle(.plain)
+                Button(confirmTitle, action: onConfirm)
+                    .disabled(name.wrappedValue.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+                    .keyboardShortcut(.defaultAction)
+            }
+        }
+        .padding(12)
     }
 
     // MARK: - 快照卡片
@@ -139,14 +353,20 @@ struct SnapshotBarView: View {
         ScrollViewReader { proxy in
             ScrollView(.horizontal, showsIndicators: false) {
                 LazyHStack(alignment: .center, spacing: Self.cardSpacing) {
+                    // 左侧占位：scrollTo(leading) 时仍保留与顶栏一致的边距
+                    Color.clear
+                        .frame(width: 14)
+                        .id("list-leading-inset")
+
                     ForEach(viewModel.items) { item in
                         SnapshotCard(
                             item: item,
+                            labels: viewModel.labels,
                             isSelected: item.id == viewModel.selectedID,
                             highlight: viewModel.searchText.trimmingCharacters(in: .whitespacesAndNewlines),
+                            suppressAnimation: viewModel.suppressListAnimation,
                             onSelect: {
-                                viewModel.selectedID = item.id
-                                viewModel.pasteSelected()
+                                viewModel.pasteItem(item)
                             },
                             onEnqueue: {
                                 viewModel.selectedID = item.id
@@ -175,6 +395,22 @@ struct SnapshotBarView: View {
                             Button(item.pinned ? "取消置顶" : "置顶") {
                                 viewModel.togglePin(item)
                             }
+                            if !viewModel.labels.isEmpty {
+                                Menu("标签") {
+                                    ForEach(viewModel.labels) { label in
+                                        Button {
+                                            viewModel.toggleLabel(label.id, for: item)
+                                        } label: {
+                                            HStack {
+                                                Text(label.name)
+                                                if item.labelIDs.contains(label.id) {
+                                                    Image(systemName: "checkmark")
+                                                }
+                                            }
+                                        }
+                                    }
+                                }
+                            }
                             Button("加入粘贴队列") {
                                 viewModel.selectedID = item.id
                                 viewModel.enqueueSelected()
@@ -188,12 +424,22 @@ struct SnapshotBarView: View {
                             }
                         }
                     }
+
+                    Color.clear.frame(width: 14)
                 }
-                .padding(.horizontal, 14)
                 .padding(.vertical, 8)
             }
-            .onChange(of: viewModel.scrollRequestID) { _, newID in
-                if let newID {
+            .onChange(of: viewModel.scrollGeneration) { _, _ in
+                guard let newID = viewModel.scrollRequestID else { return }
+                let scrollToStart = viewModel.suppressListAnimation || !viewModel.scrollAnimated
+                if scrollToStart {
+                    // 滚到左侧占位，避免首卡贴齐面板边缘
+                    var transaction = Transaction()
+                    transaction.disablesAnimations = true
+                    withTransaction(transaction) {
+                        proxy.scrollTo("list-leading-inset", anchor: .leading)
+                    }
+                } else {
                     withAnimation(.easeOut(duration: 0.12)) {
                         proxy.scrollTo(newID, anchor: .center)
                     }
@@ -257,18 +503,24 @@ struct SnapshotBarView: View {
 private struct FilterChip: View {
     let title: String
     let isSelected: Bool
+    var tint: Color = Color.accentColor
     let action: () -> Void
 
     var body: some View {
         Button(action: action) {
             Text(title)
-                .font(.system(size: 11, weight: isSelected ? .semibold : .regular))
+                .font(.system(size: 11, weight: isSelected ? .semibold : .medium))
                 .foregroundStyle(isSelected ? .white : .secondary)
                 .padding(.horizontal, 12)
-                .padding(.vertical, 4)
-                .background(isSelected ? Color.accentColor : Color.primary.opacity(0.05), in: Capsule())
+                .padding(.vertical, 5)
+                .background(
+                    Capsule(style: .continuous)
+                        .fill(isSelected ? tint.opacity(0.78) : Color.primary.opacity(0.08))
+                        .shadow(color: isSelected ? tint.opacity(0.18) : .clear, radius: 5, y: 2)
+                )
         }
         .buttonStyle(.plain)
+        .animation(.easeOut(duration: 0.12), value: isSelected)
     }
 }
 
@@ -276,67 +528,62 @@ private struct FilterChip: View {
 
 private struct SnapshotCard: View {
     let item: ClipboardItem
+    let labels: [ClipboardLabel]
     let isSelected: Bool
     let highlight: String
+    var suppressAnimation: Bool = false
     var onSelect: () -> Void
     var onEnqueue: () -> Void
     var onDelete: () -> Void
     var onTogglePin: () -> Void
     @State private var isHovering = false
 
-    var body: some View {
-        VStack(alignment: .leading, spacing: 6) {
-            headerRow
-            contentBody
-        }
-        .padding(10)
-        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
-        .background(
-            isSelected
-                ? Color.accentColor
-                : (isHovering ? Color.primary.opacity(0.08) : Color.primary.opacity(0.04))
-        )
-        .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
-        .overlay(
-            RoundedRectangle(cornerRadius: 14, style: .continuous)
-                .stroke(
-                    isSelected ? Color.accentColor : Color.primary.opacity(isHovering ? 0.16 : 0.08),
-                    lineWidth: isSelected ? 2 : 1
-                )
-        )
-        .contentShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
-        .onTapGesture {
-            let isCommand = NSEvent.modifierFlags.contains(.command)
-                || (NSApp.currentEvent?.modifierFlags.contains(.command) == true)
-            if isCommand {
-                onEnqueue()
-            } else {
-                onSelect()
-            }
-        }
-        .onHover { hovering in
-            isHovering = hovering
-        }
-        .animation(.easeOut(duration: 0.12), value: isHovering)
-        .animation(.easeOut(duration: 0.12), value: isSelected)
+    private var itemLabels: [ClipboardLabel] {
+        labels.filter { item.labelIDs.contains($0.id) }
     }
 
-    private var headerRow: some View {
-        HStack(spacing: 4) {
-            Image(systemName: iconName)
-                .font(.system(size: 10, weight: .semibold))
-                .foregroundStyle(isSelected ? Color.white.opacity(0.9) : Color.secondary)
-            Text(typeLabel)
-                .font(.system(size: 10, weight: .medium))
-                .foregroundStyle(isSelected ? Color.white.opacity(0.85) : Color.secondary)
-
-            if item.pinned {
-                Image(systemName: "pin.fill")
-                    .font(.system(size: 9))
-                    .foregroundStyle(isSelected ? .white : .orange)
+    var body: some View {
+        ZStack(alignment: .topTrailing) {
+            Button {
+                let isCommand = NSEvent.modifierFlags.contains(.command)
+                    || (NSApp.currentEvent?.modifierFlags.contains(.command) == true)
+                if isCommand {
+                    onEnqueue()
+                } else {
+                    onSelect()
+                }
+            } label: {
+                VStack(alignment: .leading, spacing: 6) {
+                    headerRow
+                    contentBody
+                    footerRow
+                }
+                .padding(10)
+                .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+                .background(
+                    RoundedRectangle(cornerRadius: 14, style: .continuous)
+                        .fill(
+                            isSelected
+                                ? Color.accentColor.opacity(0.72)
+                                : (isHovering ? Color.primary.opacity(0.12) : Color.primary.opacity(0.085))
+                        )
+                        .shadow(
+                            color: isSelected ? Color.accentColor.opacity(0.22) : Color.black.opacity(isHovering ? 0.12 : 0.06),
+                            radius: isSelected ? 8 : 6,
+                            y: isSelected ? 3 : 2
+                        )
+                )
+                .overlay(
+                    RoundedRectangle(cornerRadius: 14, style: .continuous)
+                        .stroke(
+                            isSelected ? Color.white.opacity(0.22) : Color.primary.opacity(isHovering ? 0.14 : 0.07),
+                            lineWidth: isSelected ? 1.5 : 1
+                        )
+                )
+                .scaleEffect(isSelected ? 1.02 : 1.0)
+                .contentShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
             }
-
-            Spacer(minLength: 0)
+            .buttonStyle(.plain)
 
             if isHovering {
                 HStack(spacing: 4) {
@@ -353,9 +600,91 @@ private struct SnapshotCard: View {
                         action: onDelete
                     )
                 }
+                .padding(.top, 8)
+                .padding(.trailing, 8)
             }
         }
+        .onHover { hovering in
+            isHovering = hovering
+        }
+        .animation(suppressAnimation ? nil : .spring(response: 0.28, dampingFraction: 0.86), value: isSelected)
+        .animation(suppressAnimation ? nil : .easeOut(duration: 0.12), value: isHovering)
+    }
+
+    private var headerRow: some View {
+        HStack(spacing: 5) {
+            sourceIcon
+            Text(headerTitle)
+                .font(.system(size: 10, weight: .medium))
+                .foregroundStyle(isSelected ? Color.white.opacity(0.9) : Color.secondary)
+                .lineLimit(1)
+
+            if item.pinned {
+                Image(systemName: "pin.fill")
+                    .font(.system(size: 9))
+                    .foregroundStyle(isSelected ? .white : .orange)
+            }
+
+            Spacer(minLength: 0)
+            // 悬停操作按钮叠在卡片外层，避免嵌套 Button
+            Color.clear.frame(width: isHovering ? 48 : 0, height: 1)
+        }
         .frame(height: 20)
+    }
+
+    private var headerTitle: String {
+        if itemLabels.isEmpty {
+            return typeLabel
+        }
+        let names = itemLabels.prefix(2).map(\.name).joined(separator: " · ")
+        let more = itemLabels.count > 2 ? " +\(itemLabels.count - 2)" : ""
+        return "\(typeLabel) · \(names)\(more)"
+    }
+
+    @ViewBuilder
+    private var sourceIcon: some View {
+        if let icon = Self.appIcon(for: item.sourceAppBundleID) {
+            Image(nsImage: icon)
+                .resizable()
+                .interpolation(.high)
+                .frame(width: 14, height: 14)
+                .clipShape(RoundedRectangle(cornerRadius: 3, style: .continuous))
+        } else {
+            Image(systemName: iconName)
+                .font(.system(size: 10, weight: .semibold))
+                .foregroundStyle(isSelected ? Color.white.opacity(0.9) : Color.secondary)
+        }
+    }
+
+    private var footerRow: some View {
+        HStack(spacing: 4) {
+            labelDots
+            Spacer(minLength: 0)
+            Text(RelativeTime.string(from: item.updatedAt))
+                .font(.system(size: 9, weight: .medium))
+                .foregroundStyle(isSelected ? Color.white.opacity(0.7) : Color.secondary.opacity(0.9))
+        }
+    }
+
+    @ViewBuilder
+    private var labelDots: some View {
+        let shown = Array(itemLabels.prefix(3))
+        if !shown.isEmpty {
+            HStack(spacing: -2) {
+                ForEach(shown) { label in
+                    Circle()
+                        .fill(LabelColor.color(for: label.color))
+                        .frame(width: 8, height: 8)
+                        .overlay(Circle().stroke(Color.primary.opacity(0.12), lineWidth: 0.5))
+                }
+                if itemLabels.count > 3 {
+                    Text("+\(itemLabels.count - 3)")
+                        .font(.system(size: 8, weight: .semibold))
+                        .foregroundStyle(isSelected ? Color.white.opacity(0.8) : .secondary)
+                        .padding(.leading, 4)
+                }
+            }
+        }
     }
 
     @ViewBuilder
@@ -366,7 +695,7 @@ private struct SnapshotCard: View {
         } else {
             Text(highlightedPreview)
                 .font(.system(size: 12))
-                .lineLimit(4)
+                .lineLimit(3)
                 .lineSpacing(1)
                 .multilineTextAlignment(.leading)
                 .foregroundStyle(isSelected ? .white : .primary)
@@ -410,6 +739,51 @@ private struct SnapshotCard: View {
         case .file: "文件"
         }
     }
+
+    private static let iconCache = NSCache<NSString, NSImage>()
+
+    private static func appIcon(for bundleID: String?) -> NSImage? {
+        guard let bundleID, !bundleID.isEmpty else { return nil }
+        if let cached = iconCache.object(forKey: bundleID as NSString) {
+            return cached
+        }
+        guard let url = NSWorkspace.shared.urlForApplication(withBundleIdentifier: bundleID) else {
+            return nil
+        }
+        let icon = NSWorkspace.shared.icon(forFile: url.path)
+        icon.size = NSSize(width: 28, height: 28)
+        iconCache.setObject(icon, forKey: bundleID as NSString)
+        return icon
+    }
+}
+
+private enum RelativeTime {
+    static func string(from date: Date) -> String {
+        let seconds = Int(Date().timeIntervalSince(date))
+        if seconds < 60 { return "刚刚" }
+        let minutes = seconds / 60
+        if minutes < 60 { return "\(minutes) 分钟前" }
+        let hours = minutes / 60
+        if hours < 24 { return "\(hours) 小时前" }
+        let days = hours / 24
+        if days < 30 { return "\(days) 天前" }
+        return "更早"
+    }
+}
+
+enum LabelColor {
+    static func color(for name: String) -> Color {
+        switch name {
+        case "purple": return .purple
+        case "pink": return .pink
+        case "red": return .red
+        case "orange": return .orange
+        case "yellow": return .yellow
+        case "green": return .green
+        case "gray": return .gray
+        default: return .blue
+        }
+    }
 }
 
 private struct CardIconButton: View {
@@ -432,6 +806,35 @@ private struct CardIconButton: View {
         .buttonStyle(.plain)
         .help(help)
     }
+}
+
+/// 标签横向重排：悬停时即时换位，支持左右双向；松手后落库。
+private struct LabelReorderDropDelegate: DropDelegate {
+    let targetID: Int64?
+    @Binding var draggingID: Int64?
+    let onHover: (Int64, Int64?) -> Void
+    let onDrop: () -> Void
+
+    func validateDrop(info: DropInfo) -> Bool {
+        draggingID != nil
+    }
+
+    func dropEntered(info: DropInfo) {
+        guard let draggingID, draggingID != targetID else { return }
+        onHover(draggingID, targetID)
+    }
+
+    func dropUpdated(info: DropInfo) -> DropProposal? {
+        DropProposal(operation: .move)
+    }
+
+    func performDrop(info: DropInfo) -> Bool {
+        guard draggingID != nil else { return false }
+        onDrop()
+        return true
+    }
+
+    func dropExited(info: DropInfo) {}
 }
 
 private struct SnapshotThumbnail: View {

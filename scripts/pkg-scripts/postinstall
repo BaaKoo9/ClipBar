@@ -2,7 +2,7 @@
 # 安装完成后以当前登录用户身份启动 App（安装脚本本身以 root 运行）。
 set -u
 
-APP="/Applications/Clipboard Manager.app"
+APP="/Applications/ClipBar.app"
 
 # 去掉隔离属性，免去"来自身份不明的开发者"的二次拦截。
 xattr -dr com.apple.quarantine "$APP" >/dev/null 2>&1 || true

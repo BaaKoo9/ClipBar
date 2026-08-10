@@ -29,6 +29,16 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         ensureKeepAlivePanel()
         ClipboardMonitor.shared.start()
         requestPermissionsIfNeeded()
+        UpdateChecker.schedulePeriodicChecks()
+        NotificationCenter.default.addObserver(
+            forName: .clipboardUpdateAvailable,
+            object: nil,
+            queue: .main
+        ) { [weak self] _ in
+            Task { @MainActor in
+                self?.refreshStatusItemIcon()
+            }
+        }
 
         // 面板预构建（SwiftUI + 毛玻璃）较慢，挪到下一轮 runloop，不占用启动关键路径。
         DispatchQueue.main.async { [weak self] in
@@ -222,17 +232,25 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
     private func setupStatusItem() {
         let item = NSStatusBar.system.statusItem(withLength: NSStatusItem.squareLength)
         if let button = item.button {
-            button.image = NSImage(
-                systemSymbolName: "rectangle.stack",
-                accessibilityDescription: "剪贴板"
-            )
-            button.image?.isTemplate = true
             button.target = self
             button.action = #selector(handleStatusItemClick(_:))
             button.sendAction(on: [.leftMouseUp, .rightMouseUp])
-            button.toolTip = "Clipboard Manager"
+            button.toolTip = "ClipBar"
         }
         statusItem = item
+        refreshStatusItemIcon()
+    }
+
+    private func refreshStatusItemIcon() {
+        guard let button = statusItem?.button else { return }
+        let hasUpdate = AppSettings.shared.shouldSurfaceUpdate
+        let name = hasUpdate ? "arrow.down.circle.fill" : "rectangle.stack"
+        button.image = NSImage(systemSymbolName: name, accessibilityDescription: "剪贴板")
+        button.image?.isTemplate = !hasUpdate
+        button.contentTintColor = hasUpdate ? .systemOrange : nil
+        button.toolTip = hasUpdate
+            ? "ClipBar · 有新版本 \(AppSettings.shared.availableUpdateVersion ?? "")"
+            : "ClipBar"
     }
 
     @objc private func handleStatusItemClick(_ sender: Any?) {
@@ -269,7 +287,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         let updateItem = NSMenuItem(title: "检查更新…", action: #selector(checkForUpdates(_:)), keyEquivalent: "")
         updateItem.target = self
 
-        let aboutItem = NSMenuItem(title: "关于 Clipboard Manager…", action: #selector(openAbout(_:)), keyEquivalent: "")
+        let aboutItem = NSMenuItem(title: "关于 ClipBar…", action: #selector(openAbout(_:)), keyEquivalent: "")
         aboutItem.target = self
 
         menu.addItem(showItem)
@@ -281,7 +299,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         menu.addItem(updateItem)
         menu.addItem(aboutItem)
         menu.addItem(.separator())
-        menu.addItem(NSMenuItem(title: "退出 Clipboard Manager", action: #selector(quitApp(_:)), keyEquivalent: "q"))
+        menu.addItem(NSMenuItem(title: "退出 ClipBar", action: #selector(quitApp(_:)), keyEquivalent: "q"))
 
         NSMenu.popUpContextMenu(menu, with: NSApp.currentEvent ?? NSEvent(), for: view)
     }
@@ -345,10 +363,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
     }
 
     private func showAboutWindow() {
+        let preferredSize = NSSize(width: 420, height: 480)
         if aboutWindow == nil {
             let hosting = NSHostingController(rootView: AboutView())
             let window = PanelWindow(
-                contentRect: NSRect(x: 0, y: 0, width: 420, height: 480),
+                contentRect: NSRect(origin: .zero, size: preferredSize),
                 styleMask: [.borderless, .fullSizeContentView],
                 backing: .buffered,
                 defer: false
@@ -362,20 +381,24 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
             window.collectionBehavior = [.moveToActiveSpace]
             window.isReleasedWhenClosed = false
             window.delegate = self
-            window.center()
             aboutWindow = window
         }
-        NSApp.activate(ignoringOtherApps: true)
-        aboutWindow?.makeKeyAndOrderFront(nil)
+        if let aboutWindow {
+            aboutWindow.setContentSize(preferredSize)
+            ScreenHelper.centerAfterLayout(aboutWindow, preferredSize: preferredSize, reason: "关于窗居中")
+            NSApp.activate(ignoringOtherApps: true)
+            aboutWindow.makeKeyAndOrderFront(nil)
+        }
     }
 
-    // MARK: - 设置窗口（屏幕居中，无边框圆角玻璃）
+    // MARK: - 设置窗口（当前活跃屏居中，无边框圆角玻璃）
 
     private func showSettingsWindow() {
+        let preferredSize = NSSize(width: 720, height: 560)
         if settingsWindow == nil {
             let hosting = NSHostingController(rootView: SettingsView())
             let window = PanelWindow(
-                contentRect: NSRect(x: 0, y: 0, width: 520, height: 620),
+                contentRect: NSRect(origin: .zero, size: preferredSize),
                 styleMask: [.borderless, .fullSizeContentView],
                 backing: .buffered,
                 defer: false
@@ -388,11 +411,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
             window.level = .normal
             window.collectionBehavior = [.moveToActiveSpace]
             window.isReleasedWhenClosed = false
-            window.center()
             settingsWindow = window
         }
-        NSApp.activate(ignoringOtherApps: true)
-        settingsWindow?.makeKeyAndOrderFront(nil)
+        if let settingsWindow {
+            settingsWindow.setContentSize(preferredSize)
+            ScreenHelper.centerAfterLayout(settingsWindow, preferredSize: preferredSize, reason: "设置窗居中")
+            NSApp.activate(ignoringOtherApps: true)
+            settingsWindow.makeKeyAndOrderFront(nil)
+        }
     }
 
     // MARK: - 底部面板

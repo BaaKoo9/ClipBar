@@ -31,10 +31,7 @@ public enum DebugLog {
         if handleReady { return handle }
         handleReady = true
 
-        let base = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first!
-        let dir = base.appendingPathComponent("ClipboardManager", isDirectory: true)
-        try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
-        let url = dir.appendingPathComponent("debug.log")
+        let url = AppPaths.supportDirectory().appendingPathComponent("debug.log")
 
         if !FileManager.default.fileExists(atPath: url.path) {
             FileManager.default.createFile(atPath: url.path, contents: nil)

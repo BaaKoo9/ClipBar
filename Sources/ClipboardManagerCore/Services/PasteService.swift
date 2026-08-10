@@ -58,7 +58,7 @@ public final class PasteService {
     ///
     /// 用轮询探测取代固定等待：常见情况 10–40ms 即可完成注入，
     /// `maxWait` 只在目标迟迟不激活时兜底。
-    public static func activateAndPaste(pid: pid_t?, maxWait: TimeInterval = 0.3) {
+    public static func activateAndPaste(pid: pid_t?, maxWait: TimeInterval = 0.35) {
         guard let pid, let app = NSRunningApplication(processIdentifier: pid) else {
             DebugLog.write("注入 ⌘V：无目标 App，系统级注入")
             injectCommandV()
@@ -69,20 +69,28 @@ public final class PasteService {
 
         let deadline = CFAbsoluteTimeGetCurrent() + maxWait
         func waitForFocus() {
-            guard !app.isActive, CFAbsoluteTimeGetCurrent() < deadline else {
-                // 目标已在前台，留一小段时间让其窗口完成键盘焦点交接。
-                DispatchQueue.main.asyncAfter(deadline: .now() + focusSettleDelay) {
-                    injectCommandV()
+            let selfFront = NSRunningApplication.current.isActive
+            // 目标已前台且我们已让出时立刻注入；超时则兜底注入
+            if (app.isActive && !selfFront) || CFAbsoluteTimeGetCurrent() >= deadline {
+                let settle = (app.isActive && !selfFront) ? focusSettleDelay : focusSettleDelay * 2
+                DispatchQueue.main.asyncAfter(deadline: .now() + settle) {
+                    injectCommandV(to: pid)
+                    DebugLog.write(
+                        "注入 ⌘V 完成 active=\(app.isActive) selfFront=\(NSRunningApplication.current.isActive)"
+                    )
                 }
                 return
+            }
+            if !app.isActive {
+                app.activate(options: [.activateIgnoringOtherApps])
             }
             DispatchQueue.main.asyncAfter(deadline: .now() + focusPollInterval, execute: waitForFocus)
         }
         waitForFocus()
     }
 
-    private static let focusPollInterval: TimeInterval = 0.008
-    private static let focusSettleDelay: TimeInterval = 0.03
+    private static let focusPollInterval: TimeInterval = 0.006
+    private static let focusSettleDelay: TimeInterval = 0.02
 
     /// 定向注入 ⌘C 到指定进程。
     public static func injectCommandC(to pid: pid_t) {

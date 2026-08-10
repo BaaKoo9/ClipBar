@@ -4,6 +4,28 @@ import ServiceManagement
 import SwiftUI
 
 struct SettingsView: View {
+    private enum Pane: String, CaseIterable, Identifiable {
+        case shortcuts = "快捷键"
+        case general = "通用"
+        case privacy = "隐私"
+        case labels = "标签"
+        case updates = "更新"
+        case data = "数据"
+
+        var id: String { rawValue }
+        var icon: String {
+            switch self {
+            case .shortcuts: return "keyboard"
+            case .general: return "gearshape"
+            case .privacy: return "hand.raised"
+            case .labels: return "tag"
+            case .updates: return "arrow.triangle.2.circlepath"
+            case .data: return "externaldrive"
+            }
+        }
+    }
+
+    @State private var selectedPane: Pane = .shortcuts
     @State private var hotKeyCode: Int
     @State private var hotKeyModifiers: UInt
     @State private var enqueueHotKeyCode: Int
@@ -11,11 +33,19 @@ struct SettingsView: View {
     @State private var dequeueHotKeyCode: Int
     @State private var dequeueHotKeyModifiers: UInt
     @State private var historyLimit: Int
+    @State private var retentionEnabled: Bool
+    @State private var retentionDays: Int
     @State private var autoPaste: Bool
+    @State private var bumpOnPaste: Bool
     @State private var launchAtLogin: Bool
     @State private var ignoredApps: [String]
     @State private var showAppPicker = false
     @State private var showClearConfirm = false
+    @State private var labels: [ClipboardLabel] = []
+    @State private var newLabelName = ""
+    @State private var newLabelColor = "blue"
+    @State private var availableUpdateVersion: String?
+    @State private var lastUpdateCheckAt: TimeInterval = 0
 
     init() {
         let settings = AppSettings.shared
@@ -26,28 +56,41 @@ struct SettingsView: View {
         _dequeueHotKeyCode = State(initialValue: settings.dequeueHotKeyCode)
         _dequeueHotKeyModifiers = State(initialValue: settings.dequeueHotKeyModifiers)
         _historyLimit = State(initialValue: settings.historyLimit)
+        _retentionEnabled = State(initialValue: settings.retentionEnabled)
+        _retentionDays = State(initialValue: settings.retentionDays)
         _autoPaste = State(initialValue: settings.autoPasteEnabled)
+        _bumpOnPaste = State(initialValue: settings.bumpOnPaste)
         _launchAtLogin = State(initialValue: SMAppService.mainApp.status == .enabled)
         _ignoredApps = State(initialValue: settings.ignoredApps)
+        _availableUpdateVersion = State(initialValue: settings.shouldSurfaceUpdate ? settings.availableUpdateVersion : nil)
+        _lastUpdateCheckAt = State(initialValue: settings.lastUpdateCheckAt)
     }
 
     var body: some View {
         VStack(spacing: 0) {
             titleBar
-
             Divider()
-
-            ScrollView {
-                VStack(alignment: .leading, spacing: 18) {
-                    shortcutSection
-                    generalSection
-                    privacySection
-                    dangerSection
+            HStack(spacing: 0) {
+                sidebar
+                    .frame(width: 140)
+                Divider()
+                ScrollView {
+                    Group {
+                        switch selectedPane {
+                        case .shortcuts: shortcutSection
+                        case .general: generalSection
+                        case .privacy: privacySection
+                        case .labels: labelsSection
+                        case .updates: updatesSection
+                        case .data: dangerSection
+                        }
+                    }
+                    .padding(16)
+                    .frame(maxWidth: .infinity, alignment: .topLeading)
                 }
-                .padding(16)
             }
         }
-        .frame(width: 520, height: 620)
+        .frame(width: 720, height: 560)
         .background(.ultraThinMaterial)
         .clipShape(RoundedRectangle(cornerRadius: 20, style: .continuous))
         .overlay(
@@ -55,9 +98,19 @@ struct SettingsView: View {
                 .stroke(Color.primary.opacity(0.08), lineWidth: 1)
         )
         .shadow(color: Color.black.opacity(0.18), radius: 40, y: 14)
+        .onAppear {
+            reloadLabels()
+            refreshUpdateState()
+        }
+        .onReceive(NotificationCenter.default.publisher(for: .clipboardLabelsDidChange)) { _ in
+            reloadLabels()
+        }
+        .onReceive(NotificationCenter.default.publisher(for: .clipboardUpdateAvailable)) { _ in
+            refreshUpdateState()
+        }
     }
 
-    // MARK: - 标题栏
+    // MARK: - 标题栏 / 侧栏
 
     private var titleBar: some View {
         HStack(spacing: 8) {
@@ -65,8 +118,17 @@ struct SettingsView: View {
                 .font(.system(size: 13, weight: .medium))
                 .foregroundStyle(Color.accentColor)
 
-            Text("Clipboard Manager 设置")
+            Text("ClipBar 设置")
                 .font(.system(size: 14, weight: .semibold))
+
+            if AppSettings.shared.shouldSurfaceUpdate {
+                Text("有更新")
+                    .font(.system(size: 10, weight: .semibold))
+                    .foregroundStyle(.white)
+                    .padding(.horizontal, 7)
+                    .padding(.vertical, 3)
+                    .background(Color.orange, in: Capsule())
+            }
 
             Spacer()
 
@@ -84,6 +146,45 @@ struct SettingsView: View {
         }
         .padding(.horizontal, 16)
         .padding(.vertical, 12)
+    }
+
+    private var sidebar: some View {
+        VStack(alignment: .leading, spacing: 4) {
+            ForEach(Pane.allCases) { pane in
+                Button {
+                    selectedPane = pane
+                } label: {
+                    HStack(spacing: 8) {
+                        Image(systemName: pane.icon)
+                            .font(.system(size: 12, weight: .semibold))
+                            .frame(width: 16)
+                        Text(pane.rawValue)
+                            .font(.system(size: 12, weight: selectedPane == pane ? .semibold : .regular))
+                        Spacer(minLength: 0)
+                        if pane == .updates, AppSettings.shared.shouldSurfaceUpdate {
+                            Circle()
+                                .fill(Color.orange)
+                                .frame(width: 6, height: 6)
+                        }
+                    }
+                    .foregroundStyle(selectedPane == pane ? Color.white : Color.primary.opacity(0.9))
+                    .padding(.horizontal, 10)
+                    .padding(.vertical, 9)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .background(
+                        RoundedRectangle(cornerRadius: 8, style: .continuous)
+                            .fill(selectedPane == pane ? Color.accentColor : Color.primary.opacity(0.04))
+                    )
+                }
+                .buttonStyle(.plain)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .contentShape(Rectangle())
+            }
+            Spacer()
+        }
+        .padding(10)
+        .frame(maxHeight: .infinity, alignment: .top)
+        .background(Color.primary.opacity(0.03))
     }
 
     // MARK: - 快捷键
@@ -176,11 +277,47 @@ struct SettingsView: View {
                 .frame(width: 110)
                 .onChange(of: historyLimit) { _, newValue in
                     AppSettings.shared.historyLimit = newValue
-                    ClipboardStore.shared.enforceHistoryLimit {
+                    ClipboardStore.shared.enforceHistoryLimit { _ in
                         NotificationCenter.default.post(name: .clipboardHistoryLimitChanged, object: nil)
                     }
                 }
             }
+
+            Toggle("自动清理过期内容", isOn: $retentionEnabled)
+                .onChange(of: retentionEnabled) { _, enabled in
+                    AppSettings.shared.retentionEnabled = enabled
+                    if enabled {
+                        ClipboardStore.shared.enforceHistoryLimit { _ in
+                            NotificationCenter.default.post(name: .clipboardHistoryLimitChanged, object: nil)
+                        }
+                    }
+                }
+
+            if retentionEnabled {
+                HStack {
+                    Text("保留天数")
+                    Spacer()
+                    Stepper("\(retentionDays) 天", value: $retentionDays, in: 1...30)
+                        .frame(width: 120)
+                        .onChange(of: retentionDays) { _, days in
+                            AppSettings.shared.retentionDays = days
+                            ClipboardStore.shared.enforceHistoryLimit { _ in
+                                NotificationCenter.default.post(name: .clipboardHistoryLimitChanged, object: nil)
+                            }
+                        }
+                }
+                Text("超过该天数未使用的未置顶条目将自动删除；置顶不受影响。")
+                    .font(.system(size: 11))
+                    .foregroundStyle(.tertiary)
+            }
+
+            Toggle("粘贴后移到最前", isOn: $bumpOnPaste)
+                .onChange(of: bumpOnPaste) { _, enabled in
+                    AppSettings.shared.bumpOnPaste = enabled
+                }
+            Text("从历史粘贴后，将该条目提前到未置顶列表顶部（类似 Maccy 默认行为）。")
+                .font(.system(size: 11))
+                .foregroundStyle(.tertiary)
 
             VStack(alignment: .leading, spacing: 4) {
                 Toggle("选中后自动粘贴", isOn: $autoPaste)
@@ -366,6 +503,168 @@ struct SettingsView: View {
 
     private func saveIgnoredApps() {
         AppSettings.shared.ignoredApps = ignoredApps
+    }
+
+    // MARK: - 标签
+
+    private var labelsSection: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            sectionTitle("自定义标签")
+            Text("可为历史条目打多个标签，在面板筛选或搜索 #标签名。")
+                .font(.system(size: 11))
+                .foregroundStyle(.tertiary)
+
+            VStack(alignment: .leading, spacing: 8) {
+                HStack(spacing: 8) {
+                    TextField("新标签名称", text: $newLabelName)
+                        .textFieldStyle(.roundedBorder)
+                    Button("添加") {
+                        let name = newLabelName
+                        ClipboardStore.shared.createLabel(name: name, color: newLabelColor) { _ in
+                            newLabelName = ""
+                            reloadLabels()
+                        }
+                    }
+                    .disabled(newLabelName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+                }
+                colorSwatches(selection: $newLabelColor)
+            }
+
+            if labels.isEmpty {
+                Text("还没有标签")
+                    .font(.system(size: 12))
+                    .foregroundStyle(.tertiary)
+            } else {
+                VStack(spacing: 0) {
+                    ForEach(labels) { label in
+                        HStack(spacing: 10) {
+                            // 列表只保留标记色；点击可改色
+                            ColorDotPicker(selection: Binding(
+                                get: { label.color },
+                                set: { color in
+                                    ClipboardStore.shared.updateLabel(id: label.id, name: nil, color: color) {
+                                        reloadLabels()
+                                    }
+                                }
+                            ))
+                            Text(label.name)
+                                .font(.system(size: 13, weight: .medium))
+                            Spacer()
+                            Button(role: .destructive) {
+                                ClipboardStore.shared.deleteLabel(id: label.id) {
+                                    reloadLabels()
+                                }
+                            } label: {
+                                Image(systemName: "trash")
+                                    .font(.system(size: 11))
+                            }
+                            .buttonStyle(.plain)
+                            .help("删除标签")
+                        }
+                        .padding(.vertical, 8)
+                        if label.id != labels.last?.id {
+                            Divider()
+                        }
+                    }
+                }
+                .padding(.horizontal, 8)
+                .background(Color.primary.opacity(0.03), in: RoundedRectangle(cornerRadius: 10))
+            }
+        }
+    }
+
+    private func colorSwatches(selection: Binding<String>) -> some View {
+        HStack(spacing: 8) {
+            ForEach(ClipboardLabel.presetColors, id: \.self) { color in
+                Button {
+                    selection.wrappedValue = color
+                } label: {
+                    Circle()
+                        .fill(LabelColor.color(for: color))
+                        .frame(width: 18, height: 18)
+                        .overlay(
+                            Circle().stroke(
+                                Color.primary.opacity(selection.wrappedValue == color ? 0.55 : 0.12),
+                                lineWidth: selection.wrappedValue == color ? 2 : 1
+                            )
+                        )
+                }
+                .buttonStyle(.plain)
+                .help(color)
+            }
+        }
+    }
+
+    private func reloadLabels() {
+        ClipboardStore.shared.fetchLabels { result in
+            DispatchQueue.main.async {
+                labels = result
+            }
+        }
+    }
+
+    // MARK: - 更新
+
+    private var updatesSection: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            sectionTitle("软件更新")
+            Text("当前版本 \(UpdateChecker.currentVersion)")
+                .font(.system(size: 13))
+
+            if let available = availableUpdateVersion, AppSettings.shared.shouldSurfaceUpdate {
+                VStack(alignment: .leading, spacing: 8) {
+                    Label("发现新版本 \(available)", systemImage: "arrow.down.circle.fill")
+                        .font(.system(size: 13, weight: .semibold))
+                        .foregroundStyle(.orange)
+                    HStack(spacing: 10) {
+                        Button("立即更新") {
+                            UpdateChecker.checkForUpdates(interactive: true)
+                        }
+                        .buttonStyle(.borderedProminent)
+                        Button("稍后提醒") {
+                            AppSettings.shared.dismissedUpdateVersion = available
+                            refreshUpdateState()
+                            NotificationCenter.default.post(name: .clipboardUpdateAvailable, object: nil)
+                        }
+                        .buttonStyle(.plain)
+                    }
+                }
+                .padding(12)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .background(Color.orange.opacity(0.1), in: RoundedRectangle(cornerRadius: 10))
+            } else {
+                Text("已是最新，或暂无待处理更新。")
+                    .font(.system(size: 12))
+                    .foregroundStyle(.secondary)
+            }
+
+            Button("立即检查更新…") {
+                UpdateChecker.checkForUpdates(interactive: true)
+            }
+
+            if lastUpdateCheckAt > 0 {
+                Text("上次检查：\(formattedCheckTime(lastUpdateCheckAt))")
+                    .font(.system(size: 11))
+                    .foregroundStyle(.tertiary)
+            }
+
+            Text("应用会大约每 24 小时静默检查一次；有新版本时仅在菜单图标与本页提示，不会弹窗打扰。")
+                .font(.system(size: 11))
+                .foregroundStyle(.tertiary)
+        }
+    }
+
+    private func refreshUpdateState() {
+        let settings = AppSettings.shared
+        availableUpdateVersion = settings.shouldSurfaceUpdate ? settings.availableUpdateVersion : nil
+        lastUpdateCheckAt = settings.lastUpdateCheckAt
+    }
+
+    private func formattedCheckTime(_ ts: TimeInterval) -> String {
+        let formatter = DateFormatter()
+        formatter.dateStyle = .medium
+        formatter.timeStyle = .short
+        return formatter.string(from: Date(timeIntervalSince1970: ts))
     }
 
     // MARK: - 数据
@@ -729,6 +1028,52 @@ private struct ShortcutRecorder: View {
         if let monitor {
             NSEvent.removeMonitor(monitor)
             self.monitor = nil
+        }
+    }
+}
+
+/// 列表行标记色：色点始终可见，点击弹出选色。
+private struct ColorDotPicker: View {
+    @Binding var selection: String
+    @State private var showPicker = false
+
+    var body: some View {
+        Button {
+            showPicker = true
+        } label: {
+            Circle()
+                .fill(LabelColor.color(for: selection))
+                .frame(width: 12, height: 12)
+                .overlay(
+                    Circle().stroke(Color.primary.opacity(0.22), lineWidth: 1)
+                )
+                .frame(width: 22, height: 22)
+                .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .help("更改颜色")
+        .popover(isPresented: $showPicker, arrowEdge: .bottom) {
+            HStack(spacing: 8) {
+                ForEach(ClipboardLabel.presetColors, id: \.self) { color in
+                    Button {
+                        selection = color
+                        showPicker = false
+                    } label: {
+                        Circle()
+                            .fill(LabelColor.color(for: color))
+                            .frame(width: 18, height: 18)
+                            .overlay(
+                                Circle().stroke(
+                                    Color.primary.opacity(selection == color ? 0.55 : 0.12),
+                                    lineWidth: selection == color ? 2 : 1
+                                )
+                            )
+                    }
+                    .buttonStyle(.plain)
+                    .help(color)
+                }
+            }
+            .padding(10)
         }
     }
 }

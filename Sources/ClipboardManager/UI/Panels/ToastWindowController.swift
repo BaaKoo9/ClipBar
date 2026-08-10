@@ -96,17 +96,22 @@ final class ToastWindowController {
         let height = Self.queueHeight(forCount: items.count)
         let screen = ScreenHelper.activeScreen
         let visible = screen.visibleFrame
-        let origin = NSPoint(x: visible.maxX - Self.queueWidth - 20, y: visible.maxY - height - 20)
+        let frame = NSRect(
+            x: visible.maxX - Self.queueWidth - 20,
+            y: visible.maxY - height - 20,
+            width: Self.queueWidth,
+            height: height
+        )
+        let listView = QueueListView(items: items, onClose: { [weak self] in
+            self?.hideQueue()
+            self?.onQueueClose?()
+        })
 
         if let queueWindow, let queueHosting {
-            queueHosting.rootView = QueueListView(items: items, onClose: { [weak self] in
-                self?.hideQueue()
-                self?.onQueueClose?()
-            })
-            queueWindow.setFrame(
-                NSRect(origin: origin, size: NSSize(width: Self.queueWidth, height: height)),
-                display: true
-            )
+            queueHosting.rootView = listView
+            queueWindow.setFrame(frame, display: true)
+            queueHosting.view.needsLayout = true
+            queueHosting.view.layoutSubtreeIfNeeded()
             if !queueWindow.isVisible {
                 queueWindow.alphaValue = 0
                 queueWindow.orderFrontRegardless()
@@ -118,10 +123,7 @@ final class ToastWindowController {
             return
         }
 
-        let hosting = NSHostingController(rootView: QueueListView(items: items, onClose: { [weak self] in
-            self?.hideQueue()
-            self?.onQueueClose?()
-        }))
+        let hosting = NSHostingController(rootView: listView)
         let panel = NSPanel(
             contentRect: NSRect(x: 0, y: 0, width: Self.queueWidth, height: height),
             styleMask: [.borderless, .nonactivatingPanel],
@@ -135,7 +137,11 @@ final class ToastWindowController {
         panel.level = .floating
         panel.collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary]
         panel.isReleasedWhenClosed = false
-        panel.setFrameOrigin(origin)
+        panel.setFrame(frame, display: true)
+        // 首帧强制布局：避免 Lazy/Hosting 在 alpha=0 时未测量导致「空壳」
+        hosting.view.setFrameSize(frame.size)
+        hosting.view.needsLayout = true
+        hosting.view.layoutSubtreeIfNeeded()
 
         queueWindow = panel
         queueHosting = hosting
@@ -236,7 +242,8 @@ private struct QueueListView: View {
 
             ScrollViewReader { proxy in
                 ScrollView(.vertical, showsIndicators: items.count > Self.maxVisibleRows) {
-                    LazyVStack(alignment: .leading, spacing: 0) {
+                    // 队列最多展示约 10 行：用 VStack 避免 LazyVStack 首条入队时不绘制
+                    VStack(alignment: .leading, spacing: 0) {
                         ForEach(Array(items.enumerated()), id: \.offset) { index, item in
                             HStack(alignment: .firstTextBaseline, spacing: 4) {
                                 Text("\(index + 1).")
@@ -259,6 +266,7 @@ private struct QueueListView: View {
                         }
                     }
                     .frame(maxWidth: .infinity, alignment: .leading)
+                    .id(items.count)
                 }
                 .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
                 .onAppear {

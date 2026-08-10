@@ -1,5 +1,27 @@
 import Foundation
 
+/// 用户自定义标签。
+public struct ClipboardLabel: Identifiable, Equatable, Hashable {
+    public let id: Int64
+    public var name: String
+    /// 预设色名：blue / purple / pink / red / orange / yellow / green / gray
+    public var color: String
+    public var sortOrder: Int
+    public let createdAt: Date
+
+    public init(id: Int64, name: String, color: String, sortOrder: Int, createdAt: Date) {
+        self.id = id
+        self.name = name
+        self.color = color
+        self.sortOrder = sortOrder
+        self.createdAt = createdAt
+    }
+
+    public static let presetColors = [
+        "blue", "purple", "pink", "red", "orange", "yellow", "green", "gray"
+    ]
+}
+
 /// 一条剪贴板历史记录。
 public struct ClipboardItem: Identifiable, Equatable {
     public enum Kind: String, Equatable {
@@ -18,6 +40,8 @@ public struct ClipboardItem: Identifiable, Equatable {
     public let filePaths: [String]
     public let hash: String
     public let pinned: Bool
+    public let sourceAppBundleID: String?
+    public let labelIDs: [Int64]
     public let createdAt: Date
     public let updatedAt: Date
 
@@ -31,6 +55,8 @@ public struct ClipboardItem: Identifiable, Equatable {
         filePaths: [String],
         hash: String,
         pinned: Bool,
+        sourceAppBundleID: String? = nil,
+        labelIDs: [Int64] = [],
         createdAt: Date,
         updatedAt: Date
     ) {
@@ -43,6 +69,8 @@ public struct ClipboardItem: Identifiable, Equatable {
         self.filePaths = filePaths
         self.hash = hash
         self.pinned = pinned
+        self.sourceAppBundleID = sourceAppBundleID
+        self.labelIDs = labelIDs
         self.createdAt = createdAt
         self.updatedAt = updatedAt
     }
@@ -77,6 +105,7 @@ public struct NewClipboardItem {
     public let originalImagePath: String?
     public let filePaths: [String]
     public let hash: String
+    public let sourceAppBundleID: String?
 
     public init(
         kind: ClipboardItem.Kind,
@@ -85,7 +114,8 @@ public struct NewClipboardItem {
         imagePath: String? = nil,
         originalImagePath: String? = nil,
         filePaths: [String] = [],
-        hash: String
+        hash: String,
+        sourceAppBundleID: String? = nil
     ) {
         self.kind = kind
         self.text = text
@@ -94,5 +124,6 @@ public struct NewClipboardItem {
         self.originalImagePath = originalImagePath
         self.filePaths = filePaths
         self.hash = hash
+        self.sourceAppBundleID = sourceAppBundleID
     }
 }

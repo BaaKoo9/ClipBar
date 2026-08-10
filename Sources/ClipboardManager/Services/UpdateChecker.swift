@@ -7,10 +7,10 @@ import Foundation
 @MainActor
 enum UpdateChecker {
     private static let owner = "BaaKoo9"
-    private static let repo = "clipboard-manager"
+    private static let repo = "ClipBar"
     private static let latestPageURL = URL(string: "https://github.com/\(owner)/\(repo)/releases/latest")!
     private static let apiURL = URL(string: "https://api.github.com/repos/\(owner)/\(repo)/releases/latest")!
-    private static let userAgent = "ClipboardManager/\(currentVersion) (+https://github.com/\(owner)/\(repo))"
+    private static let userAgent = "ClipBar/\(currentVersion) (+https://github.com/\(owner)/\(repo))"
 
     private struct ReleaseInfo {
         let tagName: String
@@ -48,8 +48,9 @@ enum UpdateChecker {
     }
 
     /// 从菜单触发：检查 → 提示 → 下载 pkg → 打开安装器。
+    /// `interactive == false` 时静默写入设置，不弹窗。
     static func checkForUpdates(interactive: Bool = true) {
-        DebugLog.write("检查更新：当前版本 \(currentVersion)")
+        DebugLog.write("检查更新：当前版本 \(currentVersion) interactive=\(interactive)")
         if interactive {
             ToastWindowController.shared.show(
                 title: "正在检查更新…",
@@ -63,9 +64,12 @@ enum UpdateChecker {
                 let release = try await fetchLatestRelease()
                 let remote = normalizeVersion(release.tagName)
                 let local = normalizeVersion(currentVersion)
+                AppSettings.shared.lastUpdateCheckAt = Date().timeIntervalSince1970
                 DebugLog.write("检查更新：远程 \(remote) 本地 \(local)")
 
                 if compareVersion(remote, local) <= 0 {
+                    AppSettings.shared.availableUpdateVersion = nil
+                    NotificationCenter.default.post(name: .clipboardUpdateAvailable, object: nil)
                     if interactive {
                         presentAlert(
                             title: "已是最新版本",
@@ -73,6 +77,14 @@ enum UpdateChecker {
                             style: .informational
                         )
                     }
+                    return
+                }
+
+                AppSettings.shared.availableUpdateVersion = remote
+                NotificationCenter.default.post(name: .clipboardUpdateAvailable, object: nil)
+
+                guard interactive else {
+                    DebugLog.write("检查更新：静默发现 \(remote)")
                     return
                 }
 
@@ -87,7 +99,11 @@ enum UpdateChecker {
                 }
 
                 let go = confirmUpdate(version: remote, notes: release.body)
-                guard go else { return }
+                guard go else {
+                    AppSettings.shared.dismissedUpdateVersion = remote
+                    NotificationCenter.default.post(name: .clipboardUpdateAvailable, object: nil)
+                    return
+                }
 
                 ToastWindowController.shared.show(
                     title: "正在下载 \(remote)…",
@@ -115,6 +131,25 @@ enum UpdateChecker {
                 }
             }
         }
+    }
+
+    /// 启动后调度：约 30s 首次静默检查，之后每 24h。
+    static func schedulePeriodicChecks() {
+        DispatchQueue.main.asyncAfter(deadline: .now() + 30) {
+            runSilentIfDue()
+        }
+        Timer.scheduledTimer(withTimeInterval: 60 * 60, repeats: true) { _ in
+            Task { @MainActor in
+                runSilentIfDue()
+            }
+        }
+    }
+
+    private static func runSilentIfDue() {
+        let last = AppSettings.shared.lastUpdateCheckAt
+        let due = last <= 0 || Date().timeIntervalSince1970 - last >= 24 * 60 * 60
+        guard due else { return }
+        checkForUpdates(interactive: false)
     }
 
     // MARK: - Network
@@ -203,7 +238,9 @@ enum UpdateChecker {
         let release = try JSONDecoder().decode(APIRelease.self, from: data)
         let version = normalizeVersion(release.tagName)
         let asset = release.assets.first(where: {
-            $0.name.hasSuffix(".pkg") && $0.name.localizedCaseInsensitiveContains("Clipboard-Manager")
+            guard $0.name.hasSuffix(".pkg") else { return false }
+            let name = $0.name.lowercased()
+            return name.contains("clipbar") || name.contains("clipboard-manager")
         }) ?? release.assets.first(where: { $0.name.hasSuffix(".pkg") })
 
         let pkgURL: URL?
@@ -222,11 +259,13 @@ enum UpdateChecker {
     }
 
     private static func pkgDownloadURL(version: String, tag: String) -> URL? {
+        // 优先新命名；旧 Release 资产名仍兼容
         let candidates = [
+            "ClipBar-\(version).pkg",
+            "ClipBar-\(tag).pkg",
             "Clipboard-Manager-\(version).pkg",
             "Clipboard-Manager-\(tag).pkg",
         ]
-        // 约定发布资产名；下载阶段若 404 会报错并引导打开 Releases
         guard let name = candidates.first else { return nil }
         return URL(string: "https://github.com/\(owner)/\(repo)/releases/download/\(tag)/\(name)")
     }
@@ -250,9 +289,7 @@ enum UpdateChecker {
             throw UpdateError.http(http.statusCode, rateLimited: false)
         }
 
-        let dir = FileManager.default.temporaryDirectory
-            .appendingPathComponent("ClipboardManagerUpdates", isDirectory: true)
-        try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+        let dir = AppPaths.updatesDirectory()
         let dest = dir.appendingPathComponent(name)
         if FileManager.default.fileExists(atPath: dest.path) {
             try FileManager.default.removeItem(at: dest)

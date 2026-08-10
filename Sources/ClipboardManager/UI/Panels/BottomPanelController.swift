@@ -75,39 +75,33 @@ final class BottomPanelController: NSObject {
             "secure=\(secure) fromMenu=\(fromStatusMenu) frontPID=\(sourcePID ?? -1)"
         )
         let width = max(visible.width - 48, 560)
-        let height: CGFloat = 268
+        let height = SnapshotBarView.panelHeight
         let finalRect = NSRect(x: visible.midX - width / 2, y: visible.minY + 16, width: width, height: height)
 
         visibilityToken &+= 1
         resignGraceSeconds = resignGrace
         lastShowTime = CFAbsoluteTimeGetCurrent()
+        let showStarted = lastShowTime
 
         panel.setFrame(finalRect, display: true)
 
-        // 安全输入或菜单呼出时：系统往往不允许抢焦点，makeKeyAndOrderFront 会把 isVisible
-        // 标成 true 但窗体未真正上屏。必须 orderFrontRegardless，并抬高层级。
+        // 直接上屏：淡入会与后台列表对齐叠成「一帧卡顿」体感
         let forceFront = secure || fromStatusMenu
+        panel.alphaValue = 1
         if forceFront {
             panel.level = .statusBar
-            panel.alphaValue = 1
             panel.orderFrontRegardless()
-            // 尽量成为 key 以便搜索/方向键；失败也不影响可见性
             panel.makeKeyAndOrderFront(nil)
             panel.orderFrontRegardless()
         } else {
             panel.level = .floating
-            panel.alphaValue = 0
             NSApp.activate(ignoringOtherApps: true)
             panel.makeKeyAndOrderFront(nil)
             panel.orderFrontRegardless()
-            NSAnimationContext.runAnimationGroup { context in
-                context.duration = 0.09
-                context.timingFunction = CAMediaTimingFunction(name: .easeOut)
-                panel.animator().alphaValue = 1
-            }
         }
 
         viewModel.panelDidOpen()
+        DebugLog.write("show 首帧 \(Int((CFAbsoluteTimeGetCurrent() - showStarted) * 1000))ms forceFront=\(forceFront)")
 
         let token = visibilityToken
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.2) { [weak self] in
@@ -159,7 +153,7 @@ final class BottomPanelController: NSObject {
     private func buildPanel() {
         let hosting = NSHostingController(rootView: SnapshotBarView(viewModel: viewModel))
         let p = PanelWindow(
-            contentRect: NSRect(x: 0, y: 0, width: 960, height: 268),
+            contentRect: NSRect(x: 0, y: 0, width: 960, height: SnapshotBarView.panelHeight),
             styleMask: [.borderless, .nonactivatingPanel],
             backing: .buffered,
             defer: false

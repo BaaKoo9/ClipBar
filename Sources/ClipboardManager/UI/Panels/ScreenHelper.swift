@@ -2,6 +2,41 @@ import AppKit
 import ClipboardManagerCore
 
 enum ScreenHelper {
+    /// 把窗口居中到指定屏；可强制使用固定尺寸（冷启动 SwiftUI 未布局完时 frame 不可靠）。
+    static func center(
+        _ window: NSWindow,
+        on screen: NSScreen? = nil,
+        size: NSSize? = nil,
+        reason: String = "center"
+    ) {
+        let target = screen ?? activeScreen
+        let visible = target.visibleFrame
+        let frameSize = size ?? window.frame.size
+        let origin = NSPoint(
+            x: visible.midX - frameSize.width / 2,
+            y: visible.midY - frameSize.height / 2
+        )
+        let frame = NSRect(origin: origin, size: frameSize)
+        window.setFrame(frame, display: true)
+        DebugLog.write(
+            "\(reason) screen=\(NSStringFromRect(target.frame)) frame=\(NSStringFromRect(frame))"
+        )
+    }
+
+    /// 布局后居中，并在下一 runloop 再居中一次（修冷启动首次偏位）。
+    static func centerAfterLayout(
+        _ window: NSWindow,
+        preferredSize: NSSize,
+        reason: String
+    ) {
+        let screen = activeScreen
+        window.layoutIfNeeded()
+        center(window, on: screen, size: preferredSize, reason: reason)
+        DispatchQueue.main.async {
+            center(window, on: screen, size: preferredSize, reason: "\(reason)-deferred")
+        }
+    }
+
     /// 当前活跃屏幕：鼠标所在屏优先，其次前台 App 主窗口所在屏，最后主屏。
     static var activeScreen: NSScreen {
         let mouse = NSEvent.mouseLocation

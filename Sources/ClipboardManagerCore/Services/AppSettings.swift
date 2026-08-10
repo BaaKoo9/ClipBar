@@ -16,17 +16,75 @@ public final class AppSettings {
         public static let enqueueHotKeyModifiers = "enqueueHotKeyModifiers"
         public static let dequeueHotKeyCode = "dequeueHotKeyCode"
         public static let dequeueHotKeyModifiers = "dequeueHotKeyModifiers"
+        public static let retentionEnabled = "retentionEnabled"
+        public static let retentionDays = "retentionDays"
+        public static let bumpOnPaste = "bumpOnPaste"
+        public static let lastUpdateCheckAt = "lastUpdateCheckAt"
+        public static let availableUpdateVersion = "availableUpdateVersion"
+        public static let dismissedUpdateVersion = "dismissedUpdateVersion"
     }
 
     private init() {}
 
-    /// 历史条数上限（默认 5000）。
+    /// 历史条数上限（未配置时默认 1000）。
     public var historyLimit: Int {
         get {
             let value = defaults.integer(forKey: Keys.historyLimit)
-            return value > 0 ? value : 2000
+            return value > 0 ? value : 1000
         }
         set { defaults.set(newValue, forKey: Keys.historyLimit) }
+    }
+
+    /// 是否启用按天自动清理（默认关闭）。
+    public var retentionEnabled: Bool {
+        get { defaults.object(forKey: Keys.retentionEnabled) as? Bool ?? false }
+        set { defaults.set(newValue, forKey: Keys.retentionEnabled) }
+    }
+
+    /// 超过该天数未使用（updated_at）的未置顶条目将被删除；范围 1…30，默认展示值 7。
+    public var retentionDays: Int {
+        get {
+            let value = defaults.integer(forKey: Keys.retentionDays)
+            if value <= 0 { return 7 }
+            return min(max(value, 1), 30)
+        }
+        set { defaults.set(min(max(newValue, 1), 30), forKey: Keys.retentionDays) }
+    }
+
+    /// 粘贴后是否把该条目的 updated_at 提前（默认开，对齐 Maccy）。
+    public var bumpOnPaste: Bool {
+        get { defaults.object(forKey: Keys.bumpOnPaste) as? Bool ?? true }
+        set { defaults.set(newValue, forKey: Keys.bumpOnPaste) }
+    }
+
+    /// 上次静默检查更新的时间戳（unix）。
+    public var lastUpdateCheckAt: TimeInterval {
+        get { defaults.double(forKey: Keys.lastUpdateCheckAt) }
+        set { defaults.set(newValue, forKey: Keys.lastUpdateCheckAt) }
+    }
+
+    /// 已发现但尚未安装的远程版本号（空表示无）。
+    public var availableUpdateVersion: String? {
+        get {
+            let value = defaults.string(forKey: Keys.availableUpdateVersion) ?? ""
+            return value.isEmpty ? nil : value
+        }
+        set { defaults.set(newValue ?? "", forKey: Keys.availableUpdateVersion) }
+    }
+
+    /// 用户点「稍后」静默的版本号。
+    public var dismissedUpdateVersion: String? {
+        get {
+            let value = defaults.string(forKey: Keys.dismissedUpdateVersion) ?? ""
+            return value.isEmpty ? nil : value
+        }
+        set { defaults.set(newValue ?? "", forKey: Keys.dismissedUpdateVersion) }
+    }
+
+    /// 是否应向用户展示「有更新」提示（排除已静默版本）。
+    public var shouldSurfaceUpdate: Bool {
+        guard let available = availableUpdateVersion, !available.isEmpty else { return false }
+        return available != dismissedUpdateVersion
     }
 
     /// 复制时忽略的应用 bundle identifier 列表。

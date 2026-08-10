@@ -1,5 +1,6 @@
 import AppKit
 import Foundation
+import UniformTypeIdentifiers
 
 /// 监听系统剪贴板变化，提取内容并写入历史。
 @MainActor
@@ -12,6 +13,14 @@ public final class ClipboardMonitor {
 
     /// 自己写回剪贴板的内容 hash，避免把回填操作再次记入历史。
     private var lastWrittenHash: String?
+
+    /// 最近一次以图片入库的时刻：用于吞掉微信等随后追加的「图片文件」条目。
+    private var lastImageIngestAt: CFAbsoluteTime = 0
+
+    private static let jpegType = NSPasteboard.PasteboardType("public.jpeg")
+    private static let imageExtensions: Set<String> = [
+        "png", "jpg", "jpeg", "gif", "webp", "tif", "tiff", "bmp", "heic", "heif"
+    ]
 
     private init() {
         lastChangeCount = pasteboard.changeCount
@@ -45,36 +54,19 @@ public final class ClipboardMonitor {
         guard let items = pasteboard.pasteboardItems, !items.isEmpty else { return }
 
         // 忽略设置中指定的 App（例如密码管理器）。
-        if let frontmost = NSWorkspace.shared.frontmostApplication,
-           let bundleID = frontmost.bundleIdentifier,
+        let sourceBundleID = NSWorkspace.shared.frontmostApplication?.bundleIdentifier
+        if let bundleID = sourceBundleID,
            AppSettings.shared.ignoredApps.contains(bundleID) {
             return
         }
 
-        process(items)
+        process(items, sourceAppBundleID: sourceBundleID)
     }
 
-    private func process(_ items: [NSPasteboardItem]) {
-        // 1. 图片优先：截图工具（如 PixPin）可能同时提供文件引用和图片数据，
-        //    有图片数据时一律按图片处理
-        if let imageData = pasteboard.data(forType: .png) ?? pasteboard.data(forType: .tiff) {
-            // 解码、重编码 PNG 与 SHA256 对大截图都是重活，全部放到后台，
-            // 否则复制一张图会卡住主线程上的所有交互。
-            let ignoredHash = lastWrittenHash
-            DispatchQueue.global(qos: .userInitiated).async {
-                guard let image = NSImage(data: imageData) else { return }
-                let canonicalData = image.pngData() ?? imageData
-                let hash = Hashing.sha256Hex(canonicalData)
-                guard hash != ignoredHash else { return }
-                let (originalPath, thumbPath) = Self.persistImage(data: canonicalData, hash: hash)
-                guard originalPath != nil else { return }
-                ClipboardStore.shared.upsert(NewClipboardItem(
-                    kind: .image,
-                    imagePath: thumbPath,
-                    originalImagePath: originalPath,
-                    hash: hash
-                ))
-            }
+    private func process(_ items: [NSPasteboardItem], sourceAppBundleID: String?) {
+        // 1. 位图优先：截图工具 / 微信等常同时提供文件引用与图片数据，只保留图片。
+        if let imageData = bitmapImageData() {
+            ingestImageData(imageData, sourceAppBundleID: sourceAppBundleID)
             return
         }
 
@@ -83,14 +75,42 @@ public final class ClipboardMonitor {
             forClasses: [NSURL.self],
             options: [.urlReadingFileURLsOnly: true]
         ) as? [URL], !urls.isEmpty {
+            // 纯图片文件（微信聊天图常见）：按图片入库，不另出「文件」卡片
+            if urls.allSatisfy(Self.isImageFileURL) {
+                // 刚入库过图片时，跳过紧随其后的同内容文件变更，避免双条目
+                if CFAbsoluteTimeGetCurrent() - lastImageIngestAt < 1.2 {
+                    DebugLog.write("跳过图片文件引用：距上次图片入库 <1.2s")
+                    return
+                }
+                lastImageIngestAt = CFAbsoluteTimeGetCurrent()
+                let ignoredHash = lastWrittenHash
+                let source = sourceAppBundleID
+                DispatchQueue.global(qos: .userInitiated).async {
+                    guard let data = try? Data(contentsOf: urls[0]) else { return }
+                    Self.persistAndUpsertImage(
+                        data,
+                        sourceAppBundleID: source,
+                        ignoredHash: ignoredHash
+                    )
+                }
+                return
+            }
+
             let paths = urls.map(\.path)
             let hash = Hashing.sha256Hex(filePaths: paths)
             guard hash != lastWrittenHash else { return }
+            // 刚记过图片时，不要把图片路径再记成文件
+            if CFAbsoluteTimeGetCurrent() - lastImageIngestAt < 1.2,
+               paths.allSatisfy({ Self.isImagePath($0) }) {
+                DebugLog.write("跳过文件入库：疑似图片附属引用")
+                return
+            }
             ClipboardStore.shared.upsert(NewClipboardItem(
                 kind: .file,
                 text: paths.joined(separator: "\n"),
                 filePaths: paths,
-                hash: hash
+                hash: hash,
+                sourceAppBundleID: sourceAppBundleID
             ))
             return
         }
@@ -108,9 +128,64 @@ public final class ClipboardMonitor {
                 kind: kind,
                 text: text,
                 rtfPath: rtfPath,
-                hash: hash
+                hash: hash,
+                sourceAppBundleID: sourceAppBundleID
             ))
         }
+    }
+
+    private func bitmapImageData() -> Data? {
+        pasteboard.data(forType: .png)
+            ?? pasteboard.data(forType: .tiff)
+            ?? pasteboard.data(forType: Self.jpegType)
+    }
+
+    private func ingestImageData(
+        _ imageData: Data,
+        sourceAppBundleID: String?,
+        ignoredHash: String? = nil
+    ) {
+        let ignored = ignoredHash ?? lastWrittenHash
+        lastImageIngestAt = CFAbsoluteTimeGetCurrent()
+        let source = sourceAppBundleID
+        DispatchQueue.global(qos: .userInitiated).async {
+            Self.persistAndUpsertImage(imageData, sourceAppBundleID: source, ignoredHash: ignored)
+        }
+    }
+
+    private static nonisolated func persistAndUpsertImage(
+        _ imageData: Data,
+        sourceAppBundleID: String?,
+        ignoredHash: String?
+    ) {
+        guard let image = NSImage(data: imageData) else { return }
+        let canonicalData = image.pngData() ?? imageData
+        let hash = Hashing.sha256Hex(canonicalData)
+        guard hash != ignoredHash else { return }
+        let (originalPath, thumbPath) = persistImage(data: canonicalData, hash: hash)
+        guard originalPath != nil else { return }
+        ClipboardStore.shared.upsert(NewClipboardItem(
+            kind: .image,
+            imagePath: thumbPath,
+            originalImagePath: originalPath,
+            hash: hash,
+            sourceAppBundleID: sourceAppBundleID
+        ))
+        // 清掉短时间内误记的「图片文件」条目（微信常见：先 file-url 后 bitmap）
+        ClipboardStore.shared.deleteRecentUnpinnedImageFiles(withinSeconds: 3)
+    }
+
+    private static func isImageFileURL(_ url: URL) -> Bool {
+        isImagePath(url.path)
+    }
+
+    private static func isImagePath(_ path: String) -> Bool {
+        let ext = (path as NSString).pathExtension.lowercased()
+        if imageExtensions.contains(ext) { return true }
+        if let type = UTType(filenameExtension: ext), type.conforms(to: .image) {
+            return true
+        }
+        return false
     }
 
     private func saveRTF(data: Data, hash: String) -> String? {

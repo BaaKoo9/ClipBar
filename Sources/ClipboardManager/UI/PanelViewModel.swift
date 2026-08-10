@@ -1,6 +1,7 @@
 import AppKit
 import ClipboardManagerCore
 import Foundation
+import SwiftUI
 
 /// 面板的共享状态：历史数据、选中项、搜索、粘贴队列与 Toast。
 @MainActor
@@ -10,7 +11,13 @@ final class PanelViewModel: ObservableObject {
     @Published var selectedID: Int64?
     @Published var pasteQueue: [ClipboardItem] = []
     @Published var filterKind: ClipboardItem.Kind?
+    @Published var filterLabelID: Int64?
+    @Published var labels: [ClipboardLabel] = []
     @Published var scrollRequestID: Int64?
+    /// 递增以强制触发滚动（即使目标 id 未变，呼出时需滚回起点）。
+    @Published private(set) var scrollGeneration: UInt = 0
+    /// 本次滚动是否使用动画。
+    @Published private(set) var scrollAnimated = true
     /// 底部提示中的入队/出队快捷键文案，随设置变更同步。
     @Published var enqueueHotKeyLabel = ""
     @Published var dequeueHotKeyLabel = ""
@@ -24,23 +31,30 @@ final class PanelViewModel: ObservableObject {
         onRequestClose?(animated)
     }
 
-    /// 面板显示前调用：记住当前前台 App（呼出前一刻），粘贴时定向注入到它。
-    func panelWillOpen(from pid: pid_t?) {
-        targetPID = pid
-    }
-
     private var loaded = false
     private var targetPID: pid_t?
     private var searchWorkItem: DispatchWorkItem?
+    private var filterWorkItem: DispatchWorkItem?
     private let enqueueQueue = DispatchQueue(label: "com.huxiaolong.clipboard.enqueue")
     private var hotKeyObserver: NSObjectProtocol?
     private var historyLimitObserver: NSObjectProtocol?
+    private var historyChangeObserver: NSObjectProtocol?
+    private var labelsChangeObserver: NSObjectProtocol?
+    /// 呼出首帧关闭列表/滚动动画，避免「先旧后新」的一帧卡顿。
+    @Published private(set) var suppressListAnimation = false
+    private var refreshInFlight = false
+    private var refreshPendingForceSelectFirst: Bool?
+    private var lastRefreshAt: CFAbsoluteTime = 0
+    private var lastRefreshKind: ClipboardItem.Kind?
+    private var lastRefreshLabelID: Int64?
+    private var lastRefreshQuery = ""
 
     /// 面板是横向滚动条，超出这个量的历史无法被浏览，取回来只会拖慢每次刷新。
     private static let pageSize = 300
 
     init() {
         refreshHotKeyLabels()
+        loadLabels()
         hotKeyObserver = NotificationCenter.default.addObserver(
             forName: .clipboardHotKeyChanged,
             object: nil,
@@ -56,7 +70,26 @@ final class PanelViewModel: ObservableObject {
             queue: .main
         ) { [weak self] _ in
             Task { @MainActor in
-                self?.refresh()
+                self?.refresh(forceSelectFirst: false)
+            }
+        }
+        historyChangeObserver = NotificationCenter.default.addObserver(
+            forName: .clipboardHistoryDidChange,
+            object: nil,
+            queue: .main
+        ) { [weak self] _ in
+            Task { @MainActor in
+                guard let self, self.loaded else { return }
+                self.refresh(forceSelectFirst: false)
+            }
+        }
+        labelsChangeObserver = NotificationCenter.default.addObserver(
+            forName: .clipboardLabelsDidChange,
+            object: nil,
+            queue: .main
+        ) { [weak self] _ in
+            Task { @MainActor in
+                self?.loadLabels()
             }
         }
     }
@@ -68,9 +101,14 @@ final class PanelViewModel: ObservableObject {
         if let historyLimitObserver {
             NotificationCenter.default.removeObserver(historyLimitObserver)
         }
+        if let historyChangeObserver {
+            NotificationCenter.default.removeObserver(historyChangeObserver)
+        }
+        if let labelsChangeObserver {
+            NotificationCenter.default.removeObserver(labelsChangeObserver)
+        }
     }
 
-    /// 从 AppSettings 刷新面板底部快捷键提示（设置页改键后即时同步）。
     func refreshHotKeyLabels() {
         let settings = AppSettings.shared
         enqueueHotKeyLabel = KeyCodeMapper.displayString(
@@ -83,42 +121,69 @@ final class PanelViewModel: ObservableObject {
         )
     }
 
-    // MARK: - 生命周期
-
     func loadHistory() {
         guard !loaded else { return }
         loaded = true
-        refresh()
+        refresh(forceSelectFirst: true)
     }
 
-    /// 面板呼出：默认回到「全部」，先按上限清理再刷新。
-    func panelDidOpen() {
+    /// 面板显示前调用：记住前台 App，并同步重置筛选/选中，保证首帧内容已就绪。
+    func panelWillOpen(from pid: pid_t?) {
+        targetPID = pid
+        suppressListAnimation = true
+        filterWorkItem?.cancel()
+        searchWorkItem?.cancel()
+        filterKind = nil
+        filterLabelID = nil
+        if !searchText.isEmpty { searchText = "" }
         refreshHotKeyLabels()
-        // 每次呼出重置筛选，避免上次停在「图片/文件」等分类里造成「找不到内容」的错觉
-        if filterKind != nil {
-            filterKind = nil
+        // 先用已有缓存选中首条，并无动画滚回列表起点
+        if loaded, let first = items.first {
+            selectedID = first.id
+            requestScroll(to: first.id, animated: false)
         }
-        // 已有超量历史时，呼出即裁剪到当前上限（含设置刚改完的场景）
-        ClipboardStore.shared.enforceHistoryLimit { [weak self] in
+    }
+
+    func requestScroll(to id: Int64?, animated: Bool) {
+        scrollAnimated = animated
+        scrollRequestID = id
+        scrollGeneration &+= 1
+    }
+
+    /// 面板呼出后：后台对齐数据；内容未变则不重绑列表。
+    func panelDidOpen() {
+        let openStarted = CFAbsoluteTimeGetCurrent()
+        let finishOpen: () -> Void = { [weak self] in
             guard let self else { return }
-            if self.selectedID == nil {
-                self.selectedID = self.items.first?.id
+            let ms = Int((CFAbsoluteTimeGetCurrent() - openStarted) * 1000)
+            DebugLog.write("呼出就绪 \(ms)ms items=\(self.items.count)")
+            DispatchQueue.main.async { [weak self] in
+                self?.suppressListAnimation = false
             }
-            if self.loaded {
-                self.refresh()
-            } else {
-                self.loadHistory()
-            }
+        }
+
+        if loaded {
+            refresh(forceSelectFirst: true, completion: finishOpen)
+        } else {
+            loadHistory()
+            finishOpen()
+        }
+
+        ClipboardStore.shared.enforceHistoryLimit { [weak self] changed in
+            DebugLog.write("呼出清理 changed=\(changed)")
+            guard changed else { return }
+            self?.refresh(forceSelectFirst: false)
         }
     }
 
     func panelDidClose() {
         searchWorkItem?.cancel()
+        filterWorkItem?.cancel()
         if !searchText.isEmpty {
             searchText = ""
         }
-        // 关闭时清筛选，与下次呼出「全部」一致
         filterKind = nil
+        filterLabelID = nil
     }
 
     // MARK: - 搜索与筛选
@@ -126,38 +191,187 @@ final class PanelViewModel: ObservableObject {
     /// 输入过程中防抖，避免每个按键都触发一次全表 LIKE 查询。
     func searchDidChange() {
         searchWorkItem?.cancel()
-        let work = DispatchWorkItem { [weak self] in self?.refresh() }
+        let work = DispatchWorkItem { [weak self] in self?.refresh(forceSelectFirst: true) }
         searchWorkItem = work
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.09, execute: work)
     }
 
     func setFilter(_ kind: ClipboardItem.Kind?) {
         filterKind = kind
-        refresh()
+        scheduleFilterRefresh(kind: kind)
     }
 
-    private func refresh() {
-        let query = searchText.trimmingCharacters(in: .whitespacesAndNewlines)
-        let kind = filterKind
-        // 未置顶条目最多 historyLimit；额外留一点余量给置顶项
-        let fetchLimit = min(Self.pageSize, AppSettings.shared.historyLimit + 50)
-        if query.isEmpty {
-            ClipboardStore.shared.fetchAll(kind: kind?.rawValue, limit: fetchLimit) { [weak self] items in
-                DispatchQueue.main.async { self?.apply(items) }
+    func setLabelFilter(_ labelID: Int64?) {
+        filterLabelID = labelID
+        scheduleFilterRefresh(kind: filterKind)
+    }
+
+    private func scheduleFilterRefresh(kind: ClipboardItem.Kind?) {
+        filterWorkItem?.cancel()
+        let started = CFAbsoluteTimeGetCurrent()
+        let work = DispatchWorkItem { [weak self] in
+            self?.refresh(forceSelectFirst: true) {
+                let ms = Int((CFAbsoluteTimeGetCurrent() - started) * 1000)
+                DebugLog.write(
+                    "筛选刷新 \(ms)ms kind=\(kind?.rawValue ?? "all") label=\(self?.filterLabelID.map(String.init) ?? "-")"
+                )
             }
-        } else {
-            ClipboardStore.shared.search(query, kind: kind?.rawValue, limit: fetchLimit) { [weak self] items in
-                DispatchQueue.main.async { self?.apply(items) }
+        }
+        filterWorkItem = work
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.04, execute: work)
+    }
+
+    func loadLabels() {
+        ClipboardStore.shared.fetchLabels { [weak self] labels in
+            DispatchQueue.main.async {
+                self?.labels = labels
             }
         }
     }
 
-    private func apply(_ newItems: [ClipboardItem]) {
-        items = newItems
-        if let selectedID, items.contains(where: { $0.id == selectedID }) {
+    func toggleLabel(_ labelID: Int64, for item: ClipboardItem) {
+        ClipboardStore.shared.toggleItemLabel(itemID: item.id, labelID: labelID) { [weak self] in
+            DispatchQueue.main.async {
+                self?.refresh(forceSelectFirst: false)
+            }
+        }
+    }
+
+    func createLabel(name: String, color: String = "blue") {
+        ClipboardStore.shared.createLabel(name: name, color: color) { [weak self] _ in
+            DispatchQueue.main.async {
+                self?.loadLabels()
+            }
+        }
+    }
+
+    func updateLabel(id: Int64, name: String?, color: String?) {
+        ClipboardStore.shared.updateLabel(id: id, name: name, color: color) { [weak self] in
+            DispatchQueue.main.async {
+                self?.loadLabels()
+            }
+        }
+    }
+
+    func deleteLabel(id: Int64) {
+        ClipboardStore.shared.deleteLabel(id: id) { [weak self] in
+            DispatchQueue.main.async {
+                if self?.filterLabelID == id {
+                    self?.filterLabelID = nil
+                }
+                self?.loadLabels()
+                self?.refresh(forceSelectFirst: false)
+            }
+        }
+    }
+
+    /// 拖拽过程中的即时重排（仅更新内存；松手后再落库）。
+    func moveLabel(draggingID: Int64, before targetID: Int64?) {
+        guard let from = labels.firstIndex(where: { $0.id == draggingID }) else { return }
+        var ordered = labels
+        if let targetID {
+            guard let to = ordered.firstIndex(where: { $0.id == targetID }), from != to else { return }
+            ordered.move(fromOffsets: IndexSet(integer: from), toOffset: to > from ? to + 1 : to)
+        } else {
+            guard from != ordered.count - 1 else { return }
+            let item = ordered.remove(at: from)
+            ordered.append(item)
+        }
+        labels = ordered
+    }
+
+    func commitLabelOrder() {
+        ClipboardStore.shared.reorderLabels(orderedIDs: labels.map(\.id))
+    }
+
+    private func refresh(forceSelectFirst: Bool, completion: (() -> Void)? = nil) {
+        if refreshInFlight {
+            refreshPendingForceSelectFirst =
+                (refreshPendingForceSelectFirst ?? false) || forceSelectFirst
+            DebugLog.write("refresh coalesce forceSelect=\(forceSelectFirst)")
+            completion?()
             return
         }
-        selectedID = items.first?.id
+        refreshInFlight = true
+        let query = searchText.trimmingCharacters(in: .whitespacesAndNewlines)
+        let kind = filterKind
+        let labelID = filterLabelID
+        let fetchLimit = min(Self.pageSize, AppSettings.shared.historyLimit + 50)
+        let started = CFAbsoluteTimeGetCurrent()
+        let finish: ([ClipboardItem]) -> Void = { [weak self] items in
+            DispatchQueue.main.async {
+                guard let self else { return }
+                self.apply(items, forceSelectFirst: forceSelectFirst)
+                self.lastRefreshAt = CFAbsoluteTimeGetCurrent()
+                self.lastRefreshKind = kind
+                self.lastRefreshLabelID = labelID
+                self.lastRefreshQuery = query
+                self.refreshInFlight = false
+                let ms = Int((CFAbsoluteTimeGetCurrent() - started) * 1000)
+                if ms > 16 {
+                    DebugLog.write("列表刷新 \(ms)ms count=\(items.count)")
+                }
+                completion?()
+                if let pending = self.refreshPendingForceSelectFirst {
+                    self.refreshPendingForceSelectFirst = nil
+                    self.refresh(forceSelectFirst: pending)
+                }
+            }
+        }
+        if query.isEmpty {
+            ClipboardStore.shared.fetchAll(
+                kind: kind?.rawValue,
+                labelID: labelID,
+                limit: fetchLimit,
+                completion: finish
+            )
+        } else {
+            ClipboardStore.shared.search(
+                query,
+                kind: kind?.rawValue,
+                labelID: labelID,
+                limit: fetchLimit,
+                completion: finish
+            )
+        }
+    }
+
+    private func apply(_ newItems: [ClipboardItem], forceSelectFirst: Bool) {
+        let update = {
+            let sameContent = self.items.count == newItems.count
+                && zip(self.items, newItems).allSatisfy { a, b in
+                    a.id == b.id
+                        && a.updatedAt == b.updatedAt
+                        && a.pinned == b.pinned
+                        && a.labelIDs == b.labelIDs
+                        && a.hash == b.hash
+                }
+            if !sameContent {
+                self.items = newItems
+            } else {
+                DebugLog.write("refresh skip same-content")
+            }
+            if forceSelectFirst {
+                let firstID = self.items.first?.id
+                if self.selectedID != firstID {
+                    self.selectedID = firstID
+                }
+                self.requestScroll(to: firstID, animated: !self.suppressListAnimation)
+                return
+            }
+            if let selectedID = self.selectedID, self.items.contains(where: { $0.id == selectedID }) {
+                return
+            }
+            self.selectedID = self.items.first?.id
+            self.requestScroll(to: self.selectedID, animated: !self.suppressListAnimation)
+        }
+        if suppressListAnimation {
+            var transaction = Transaction()
+            transaction.disablesAnimations = true
+            withTransaction(transaction, update)
+        } else {
+            update()
+        }
     }
 
     // MARK: - 键盘导航
@@ -171,34 +385,61 @@ final class PanelViewModel: ObservableObject {
         let currentIndex = items.firstIndex { $0.id == selectedID } ?? -1
         let newIndex = min(max(currentIndex + offset, 0), items.count - 1)
         selectedID = items[newIndex].id
-        scrollRequestID = selectedID
+        requestScroll(to: selectedID, animated: true)
     }
 
     // MARK: - 粘贴
 
     func pasteSelected() {
         guard let item = selectedItem else { return }
-        DebugLog.write("回车粘贴: \(item.kind.rawValue) \(item.previewLine.prefix(20))")
+        paste(item, source: "keyboard", deferFocusHandoff: false)
+    }
+
+    /// 鼠标点击粘贴：直接带上条目，并延后焦点交接，避开 ScrollView 点击与窗口切换抢跑。
+    func pasteItem(_ item: ClipboardItem) {
+        selectedID = item.id
+        paste(item, source: "mouse", deferFocusHandoff: true)
+    }
+
+    private func paste(_ item: ClipboardItem, source: String, deferFocusHandoff: Bool) {
+        let pasteStarted = CFAbsoluteTimeGetCurrent()
+        DebugLog.write("\(source)粘贴: \(item.kind.rawValue) \(item.previewLine.prefix(20))")
         if let hash = PasteService.shared.writeToPasteboard(item) {
             ClipboardMonitor.shared.ignore(hash: hash)
         }
+        if AppSettings.shared.bumpOnPaste, item.id > 0 {
+            ClipboardStore.shared.touch(id: item.id)
+        }
+        let writeMs = Int((CFAbsoluteTimeGetCurrent() - pasteStarted) * 1000)
 
         let shouldPaste = AppSettings.shared.autoPasteEnabled && PasteService.hasAccessibilityPermission
         // 粘贴场景跳过淡出动画：面板必须先让出焦点，注入才能落到目标 App。
         requestClose(animated: !shouldPaste)
 
         if shouldPaste {
-            if NSApp.isActive {
-                NSApp.deactivate()
+            let pid = targetPID
+            let handoff = {
+                if NSApp.isActive {
+                    NSApp.deactivate()
+                }
+                PasteService.activateAndPaste(pid: pid)
+                DebugLog.write("粘贴路径 source=\(source) write=\(writeMs)ms → 注入")
             }
-            PasteService.activateAndPaste(pid: targetPID)
+            if deferFocusHandoff {
+                // 等鼠标抬起与面板 orderOut 落定后再交还焦点，避免点击路径明显慢于回车
+                DispatchQueue.main.async(execute: handoff)
+            } else {
+                handoff()
+            }
         } else if !PasteService.hasAccessibilityPermission {
-            DebugLog.write("粘贴：无辅助功能权限，仅写回剪贴板")
+            DebugLog.write("粘贴：无辅助功能权限，仅写回剪贴板 write=\(writeMs)ms")
             ToastWindowController.shared.show(
                 title: "已写入剪贴板",
                 message: "未授权辅助功能，请手动 ⌘V；可在设置中开启",
                 systemImage: "exclamationmark.triangle"
             )
+        } else {
+            DebugLog.write("粘贴：仅写回剪贴板 write=\(writeMs)ms")
         }
     }
 
@@ -206,19 +447,19 @@ final class PanelViewModel: ObservableObject {
 
     func togglePin(_ item: ClipboardItem) {
         ClipboardStore.shared.setPinned(id: item.id, pinned: !item.pinned) { [weak self] in
-            DispatchQueue.main.async { self?.refresh() }
+            DispatchQueue.main.async { self?.refresh(forceSelectFirst: false) }
         }
     }
 
     func deleteItem(_ item: ClipboardItem) {
         ClipboardStore.shared.delete(id: item.id) { [weak self] in
-            DispatchQueue.main.async { self?.refresh() }
+            DispatchQueue.main.async { self?.refresh(forceSelectFirst: true) }
         }
     }
 
     func clearAllHistory() {
         ClipboardStore.shared.clear { [weak self] in
-            DispatchQueue.main.async { self?.refresh() }
+            DispatchQueue.main.async { self?.refresh(forceSelectFirst: true) }
         }
     }
 
@@ -379,6 +620,9 @@ final class PanelViewModel: ObservableObject {
         let target = PasteService.frontmostPID()
         if let hash = PasteService.shared.writeToPasteboard(item) {
             ClipboardMonitor.shared.ignore(hash: hash)
+        }
+        if AppSettings.shared.bumpOnPaste, item.id > 0 {
+            ClipboardStore.shared.touch(id: item.id)
         }
         if PasteService.hasAccessibilityPermission {
             // 出队语义 = 粘贴：有权限就注入，不依赖自动粘贴开关

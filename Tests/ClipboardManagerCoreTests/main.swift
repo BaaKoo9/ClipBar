@@ -213,7 +213,7 @@ private func testHistoryLimitEnforcedStrictly() throws {
 
     // 调低上限后应能主动裁剪
     AppSettings.shared.historyLimit = 50
-    store.enforceHistoryLimit {
+    store.enforceHistoryLimit { _ in
         semaphore.signal()
     }
     _ = semaphore.wait(timeout: .now() + 2)
@@ -531,6 +531,166 @@ private func testLegacyDatabaseMigration() throws {
     expectEqual(items.count, 1, "旧库迁移后仍可读写")
     expectEqual(items.first?.rtfPath, "/tmp/fake.rtf", "迁移后 rtf_path 列可正常存取")
 }
+
+private func testRetentionDeletesOldUnpinned() throws {
+    let tempDir = FileManager.default.temporaryDirectory
+        .appendingPathComponent("RetentionTests-\(UUID().uuidString)", isDirectory: true)
+    try FileManager.default.createDirectory(at: tempDir, withIntermediateDirectories: true)
+    defer { try? FileManager.default.removeItem(at: tempDir) }
+
+    let previousRetention = AppSettings.shared.retentionEnabled
+    let previousDays = AppSettings.shared.retentionDays
+    let previousLimit = AppSettings.shared.historyLimit
+    AppSettings.shared.retentionEnabled = true
+    AppSettings.shared.retentionDays = 7
+    AppSettings.shared.historyLimit = 5000
+    defer {
+        AppSettings.shared.retentionEnabled = previousRetention
+        AppSettings.shared.retentionDays = previousDays
+        AppSettings.shared.historyLimit = previousLimit
+    }
+
+    let dbURL = tempDir.appendingPathComponent("test.sqlite")
+    let store = ClipboardStore(dbURL: dbURL, imagesDirectory: tempDir)
+    store.upsert(NewClipboardItem(kind: .text, text: "新鲜", hash: "fresh"))
+    store.upsert(NewClipboardItem(kind: .text, text: "过期", hash: "stale"))
+    store.upsert(NewClipboardItem(kind: .text, text: "置顶过期", hash: "pinned-stale"))
+    waitForStore()
+
+    let semaphore = DispatchSemaphore(value: 0)
+    var pinnedID: Int64?
+    store.fetchAll { items in
+        pinnedID = items.first(where: { $0.hash == "pinned-stale" })?.id
+        semaphore.signal()
+    }
+    _ = semaphore.wait(timeout: .now() + 2)
+    store.setPinned(id: pinnedID!, pinned: true) {
+        semaphore.signal()
+    }
+    _ = semaphore.wait(timeout: .now() + 2)
+
+    // 把过期条目的 updated_at 拨到 8 天前（保留天数 7）
+    let staleTS = Date().addingTimeInterval(-8 * 24 * 60 * 60).timeIntervalSince1970
+    var db: OpaquePointer?
+    dbURL.path.withCString { path in
+        sqlite3_open(path, &db)
+    }
+    let sql = "UPDATE items SET updated_at = \(staleTS) WHERE hash IN ('stale','pinned-stale')" as NSString
+    typealias ExecCallback = @convention(c) (UnsafeMutableRawPointer?, Int32, UnsafeMutablePointer<UnsafeMutablePointer<CChar>?>?, UnsafeMutablePointer<UnsafeMutablePointer<CChar>?>?) -> Int32
+    sqlite3_exec(db, sql.utf8String, Optional<ExecCallback>.none, nil, nil)
+    sqlite3_close(db)
+
+    store.enforceHistoryLimit { _ in
+        semaphore.signal()
+    }
+    _ = semaphore.wait(timeout: .now() + 2)
+
+    var after: [ClipboardItem] = []
+    store.fetchAll { items in
+        after = items
+        semaphore.signal()
+    }
+    _ = semaphore.wait(timeout: .now() + 2)
+
+    expect(after.contains { $0.hash == "fresh" }, "TTL 应保留未过期条目")
+    expect(!after.contains { $0.hash == "stale" }, "TTL 应删除过期未置顶")
+    expect(after.contains { $0.hash == "pinned-stale" }, "TTL 应保留过期置顶")
+}
+
+private func testDeleteRecentImageFilesAfterImageUpsert() throws {
+    let tempDir = FileManager.default.temporaryDirectory
+        .appendingPathComponent("ImageFileDedup-\(UUID().uuidString)", isDirectory: true)
+    try FileManager.default.createDirectory(at: tempDir, withIntermediateDirectories: true)
+    defer { try? FileManager.default.removeItem(at: tempDir) }
+
+    let store = ClipboardStore(dbURL: tempDir.appendingPathComponent("test.sqlite"), imagesDirectory: tempDir)
+    let imagePath = tempDir.appendingPathComponent("wechat-shot.png").path
+    store.upsert(NewClipboardItem(
+        kind: .file,
+        text: imagePath,
+        filePaths: [imagePath],
+        hash: "file-img-1"
+    ))
+    waitForStore()
+    store.upsert(NewClipboardItem(
+        kind: .image,
+        imagePath: tempDir.appendingPathComponent("thumb.jpg").path,
+        originalImagePath: tempDir.appendingPathComponent("orig.data").path,
+        hash: "bitmap-1"
+    ))
+    let semaphore = DispatchSemaphore(value: 0)
+    store.deleteRecentUnpinnedImageFiles(withinSeconds: 3)
+    // deleteRecent 是异步的，稍等
+    DispatchQueue.global().asyncAfter(deadline: .now() + 0.15) { semaphore.signal() }
+    _ = semaphore.wait(timeout: .now() + 2)
+
+    var items: [ClipboardItem] = []
+    store.fetchAll { result in
+        items = result
+        semaphore.signal()
+    }
+    _ = semaphore.wait(timeout: .now() + 2)
+
+    expect(!items.contains { $0.hash == "file-img-1" }, "图片入库后应清理近期图片文件条目")
+    expect(items.contains { $0.hash == "bitmap-1" }, "图片条目应保留")
+}
+
+private func testLabelsAssignAndFilter() throws {
+    let tempDir = FileManager.default.temporaryDirectory
+        .appendingPathComponent("LabelTests-\(UUID().uuidString)", isDirectory: true)
+    try FileManager.default.createDirectory(at: tempDir, withIntermediateDirectories: true)
+    defer { try? FileManager.default.removeItem(at: tempDir) }
+
+    let store = ClipboardStore(dbURL: tempDir.appendingPathComponent("test.sqlite"), imagesDirectory: tempDir)
+    store.upsert(NewClipboardItem(kind: .text, text: "工作备注", hash: "work1"))
+    store.upsert(NewClipboardItem(kind: .text, text: "生活备注", hash: "life1"))
+    waitForStore()
+
+    let semaphore = DispatchSemaphore(value: 0)
+    var labelID: Int64?
+    store.createLabel(name: "工作", color: "blue") { label in
+        labelID = label?.id
+        semaphore.signal()
+    }
+    _ = semaphore.wait(timeout: .now() + 2)
+    expect(labelID != nil, "应能创建标签")
+    guard let labelID else { return }
+
+    var items: [ClipboardItem] = []
+    store.fetchAll { result in
+        items = result
+        semaphore.signal()
+    }
+    _ = semaphore.wait(timeout: .now() + 2)
+    guard let workItem = items.first(where: { $0.hash == "work1" }) else {
+        expect(false, "应能找到 work1 条目")
+        return
+    }
+    store.setItemLabels(itemID: workItem.id, labelIDs: [labelID]) {
+        semaphore.signal()
+    }
+    _ = semaphore.wait(timeout: .now() + 2)
+
+    store.fetchAll(labelID: labelID) { result in
+        items = result
+        semaphore.signal()
+    }
+    _ = semaphore.wait(timeout: .now() + 2)
+    expectEqual(items.count, 1, "按标签筛选应只命中一条")
+    expectEqual(items.first?.hash, "work1", "标签筛选命中正确条目")
+
+    store.touch(id: workItem.id) {
+        semaphore.signal()
+    }
+    _ = semaphore.wait(timeout: .now() + 2)
+    store.fetchAll { result in
+        items = result
+        semaphore.signal()
+    }
+    _ = semaphore.wait(timeout: .now() + 2)
+    expectEqual(items.first?.hash, "work1", "touch 后应排到最前")
+}
+
 // MARK: - 运行
 
 do {
@@ -549,6 +709,9 @@ do {
     testHotKeyRegistration()
     try testRTFPastePreservesFormat()
     try testLegacyDatabaseMigration()
+    try testRetentionDeletesOldUnpinned()
+    try testDeleteRecentImageFilesAfterImageUpsert()
+    try testLabelsAssignAndFilter()
 } catch {
     failed += 1
     print("❌ 测试抛出异常: \(error)")

@@ -1,4 +1,4 @@
-# Clipboard Manager
+# ClipBar
 
 [中文文档](README_CN.md)
 
@@ -14,25 +14,25 @@ A **local-first, high-performance, minimal** macOS clipboard manager. Keyboard-f
 
 - Menu bar resident, global hotkeys to summon the panel (default `⌥⌘V`, customizable by recording)
 - Auto-captures: text, links, images, files, and rich text (RTF preserved)
-- **Snapshot bar**: horizontal cards at the bottom of the screen, adaptive width, category filters (All / Text / Link / Image / File)
-- Instant search with keyword highlighting
-- Pin/favorite items (protected from history cleanup)
+- **Snapshot bar**: horizontal cards with type filters (All / Text / Link / Image / File) and custom labels
+- Instant search with keyword highlighting (supports `#tag`)
+- Pin/favorite items (protected from history cleanup); optional bump-on-paste
 - Deduplication: identical content refreshes timestamp instead of stacking
-- **Sequential paste**: enqueue with `⌥⌘E` (simulates ⌘C + auto-queue), dequeue with `⌥⌘D` (paste one by one), with a persistent side queue list
-- Queue side panel: shows all queued items, scrollable, follows the screen where you started copying
-- Settings: launch at login, history limit (100–3000), auto-paste, ignore specific apps (pick from app list), clear history
+- **Sequential paste**: enqueue with `⌥⌘E` (simulates ⌘C + auto-queue), dequeue with `⌥⌘D`, with a persistent side queue list
+- Labels: create / drag-reorder / context-menu edit-delete in the panel; manage in Settings
+- Settings: launch at login, history limit & retention, auto-paste, ignore apps, silent update checks, clear history
 - **Privacy: zero network permissions, all data stays local** (SQLite + cached images/RTF)
 - About window with version info and project link
 
 ## Installation
 
-Download the latest **`.pkg` installer** from [Releases](https://github.com/BaaKoo9/clipboard-manager/releases), then double-click to install into Applications.
+Download the latest **`.pkg` installer** from [Releases](https://github.com/BaaKoo9/ClipBar/releases), then double-click to install into Applications.
 
 ### First launch (not notarized)
 
 This build is self-signed and **not Apple-notarized**. macOS may block the first open after download. Use either:
 
-1. **Recommended**: in Finder, **Control-click** (or right-click) `Clipboard Manager` → **Open** → confirm **Open** again
+1. **Recommended**: in Finder, **Control-click** (or right-click) `ClipBar` → **Open** → confirm **Open** again
 2. Or go to **System Settings → Privacy & Security**, scroll to the security prompt, and click **Open Anyway** (wording may vary by macOS version)
 
 After that, grant in **System Settings → Privacy & Security**:
@@ -60,8 +60,8 @@ All shortcuts are customizable in Settings.
 Requires macOS 14+ and only Xcode CommandLineTools (no full Xcode needed):
 
 ```bash
-./scripts/build-app.sh          # builds dist/Clipboard Manager.app
-./scripts/make-pkg.sh           # builds dist/Clipboard-Manager-x.y.z.pkg
+./scripts/build-app.sh          # builds dist/ClipBar.app
+./scripts/make-pkg.sh           # builds dist/ClipBar-x.y.z.pkg
 ./scripts/run-tests.sh          # runs core unit tests
 ```
 
@@ -88,6 +88,7 @@ Covers: insert/fetch, dedup, search, pin protection, clear, text/image/file/RTF 
 - [x] Sequential paste, pin, ignore apps, launch at login
 - [x] App icon, pkg installer, about window
 - [x] Queue side panel with screen following
+- [x] Custom labels, silent update checks
 - [ ] Cloud sync (iCloud private database), more type detection (colors, code blocks)
 
 ## License

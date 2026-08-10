@@ -2,7 +2,7 @@
 import PackageDescription
 
 let package = Package(
-    name: "ClipboardManager",
+    name: "ClipBar",
     platforms: [
         .macOS(.v14)
     ],
@@ -17,7 +17,7 @@ let package = Package(
             ]
         ),
         .executableTarget(
-            name: "ClipboardManager",
+            name: "ClipBar",
             dependencies: ["ClipboardManagerCore"],
             path: "Sources/ClipboardManager",
             linkerSettings: [

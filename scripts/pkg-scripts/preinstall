@@ -2,8 +2,14 @@
 # 覆盖安装前先退出正在运行的实例，避免替换正在执行的二进制。
 set -u
 
+osascript -e 'quit app "ClipBar"' >/dev/null 2>&1 || true
 osascript -e 'quit app "Clipboard Manager"' >/dev/null 2>&1 || true
 sleep 1
+pkill -f "ClipBar.app/Contents/MacOS/ClipBar" >/dev/null 2>&1 || true
 pkill -f "Clipboard Manager.app/Contents/MacOS/ClipboardManager" >/dev/null 2>&1 || true
+pkill -f "Clipboard Manager.app/Contents/MacOS/ClipBar" >/dev/null 2>&1 || true
+
+# 清理旧显示名安装副本，避免两套并存
+rm -rf "/Applications/Clipboard Manager.app" >/dev/null 2>&1 || true
 
 exit 0

@@ -50,7 +50,7 @@ struct AboutView: View {
             .clipShape(RoundedRectangle(cornerRadius: 20, style: .continuous))
             .shadow(color: Color.black.opacity(0.2), radius: 16, y: 6)
 
-            Text("Clipboard Manager")
+            Text("ClipBar")
                 .font(.system(size: 20, weight: .bold))
                 .tracking(-0.5)
 
@@ -78,7 +78,7 @@ struct AboutView: View {
             Spacer()
 
             Button {
-                if let url = URL(string: "https://github.com/BaaKoo9/clipboard-manager") {
+                if let url = URL(string: "https://github.com/BaaKoo9/ClipBar") {
                     NSWorkspace.shared.open(url)
                 }
             } label: {
