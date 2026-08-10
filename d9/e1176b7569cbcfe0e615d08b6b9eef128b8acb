@@ -1,0 +1,197 @@
+Sources/ClipboardManagerCore/Services/DebugLog.swift
+  s_d8048c9cf9bfc5::t_0be929c408ba44 34
+scripts/pkg-scripts/postinstall
+  s_d8048c9cf9bfc5::t_f73493a76994b0 5
+Sources/ClipboardManagerCore/Services/AppSettings.swift
+  s_d8048c9cf9bfc5::t_b7e3f0dc34dec8 19-20,29,33,38-51
+  s_d8048c9cf9bfc5::t_989adb1ad9f19d 21-24,52-88
+  s_d8048c9cf9bfc5::t_e220ba94fa8ff2 89
+Sources/ClipboardManager/UI/Panels/ToastWindowController.swift
+  s_d8048c9cf9bfc5::t_1af8043210bb0d 99-108,111-114,126,140-144
+  s_d8048c9cf9bfc5::t_a4812f7ab9d745 245-246,269
+scripts/pkg-scripts/preinstall
+  s_d8048c9cf9bfc5::t_bc96b16ff25d6f 5,8,10-13
+scripts/make-dmg.sh
+  s_d8048c9cf9bfc5::t_dfcb5b1ef1c614 4-5,8,11,13,18,23-30,34,50,53,55,60,63
+  s_d8048c9cf9bfc5::t_c7b7e9353f07e6 7,9-10,12,32-33,35-49,51,54,56,61-62,64
+Sources/ClipboardManagerCore/Services/ClipboardStore.swift
+  s_d8048c9cf9bfc5::t_281c6985006daf 71-72
+  s_d8048c9cf9bfc5::t_a28bcadcf16f9c 781-784,789
+  s_d8048c9cf9bfc5::t_3ed81cc3bc3e14 221,226,229-232,234-235,237-262
+  s_d8048c9cf9bfc5::t_712e62b101c741 603,622,634,651,673
+  s_d8048c9cf9bfc5::t_d3000aceb84f4a 306-340
+  s_d8048c9cf9bfc5::t_bc6fc769ddb79f 677-689
+  s_d8048c9cf9bfc5::t_1a4642f83bd765 125,361-364,374,380,383-384,387,418,421-422,425,427-428,431,436-443,445-447,471-476,484,486,489-495,508,513-524,527,533-534,539-562,572-602,604-621,623-633,635-650,652-672,674-676,690-732,749,762,785-788
+  s_d8048c9cf9bfc5::t_58907141b6095b 180-181
+  s_d8048c9cf9bfc5::t_0af91f7376cc97 204,220
+  s_d8048c9cf9bfc5::t_e6b0c5dc586cee 444
+  s_d8048c9cf9bfc5::t_2c0e9ac0f9c0dc 79-101
+  s_d8048c9cf9bfc5::t_7876a72bbc6a2e 19
+  s_d8048c9cf9bfc5::t_488b3b9357e67b 285,290,295-296,300,303-305,365-373,375-379,381-382,424,426,429
+  s_d8048c9cf9bfc5::t_8cd6800022c7a3 78,107,114,117,120,123-124
+  s_d8048c9cf9bfc5::t_72576f2285c8c2 36,40,44
+Sources/ClipboardManager/UI/Panels/SnapshotBarView.swift
+  s_d8048c9cf9bfc5::t_5303418ec21ac2 173,178-202,222-237,249-270,413
+  s_d8048c9cf9bfc5::t_97d77da231b38b 369
+  s_d8048c9cf9bfc5::t_fc7d64db1d4a1a 631,774-786
+  s_d8048c9cf9bfc5::t_3ea0f3729217b4 771,811-837
+  s_d8048c9cf9bfc5::t_09663e8af92475 51-53,55-58,60,62-68,72,74
+  s_d8048c9cf9bfc5::t_ee767e8507f326 9-12
+  s_d8048c9cf9bfc5::t_f66ba9c66b5d47 356-360,427-428,434-436,440-442
+  s_d8048c9cf9bfc5::t_bdf8aa848ca263 50
+  s_d8048c9cf9bfc5::t_ea092a8488da73 432-433
+  s_d8048c9cf9bfc5::t_0a739527f7c8e2 546-547,554-574,576-601,603-604,629-630
+  s_d8048c9cf9bfc5::t_5aad6d9118101e 54,59,61
+  s_d8048c9cf9bfc5::t_e0c706d4c59be6 239-240,246
+  s_d8048c9cf9bfc5::t_955daef94e0654 274-313,315,317,321,323,326,329-332,340,342-344
+  s_d8048c9cf9bfc5::t_b7de86a3d4caed 534
+  s_d8048c9cf9bfc5::t_5210c503888454 512,516-517,520,523
+  s_d8048c9cf9bfc5::t_4120e37a5c6440 13-16
+  s_d8048c9cf9bfc5::t_5562eff61e0618 437-439
+  s_d8048c9cf9bfc5::t_038dee8c0ccbfb 18-20
+  s_d8048c9cf9bfc5::t_7d5d54dd6edf73 617,620,633,635-641
+  s_d8048c9cf9bfc5::t_ddfe2e5d381e77 171,203-204,238,241
+  s_d8048c9cf9bfc5::t_43896fb2127364 137-158,160-170,172,174-177,205-221,271-273,314,316,318-320,322,324-325,327-328,333-339,341,345-347
+  s_d8048c9cf9bfc5::t_1f915335ca11bd 22
+  s_d8048c9cf9bfc5::t_77b7d3b665fa3b 615-616,619,642-659,698,742-770,772,838
+  s_d8048c9cf9bfc5::t_0427e983fc9a5b 367
+  s_d8048c9cf9bfc5::t_52f2b0c0707da5 548-553,602
+  s_d8048c9cf9bfc5::t_721e6811f364bf 364,398-412
+  s_d8048c9cf9bfc5::t_c3a5a60b715b98 515
+  s_d8048c9cf9bfc5::t_ab5ab013dcd09a 610-611
+  s_d8048c9cf9bfc5::t_c6493abfa44e9e 506,518-519,531,541-544
+  s_d8048c9cf9bfc5::t_d1c33a2cb77f71 23
+  s_d8048c9cf9bfc5::t_e994a2e56f14ec 660-684
+  s_d8048c9cf9bfc5::t_00484f837b46dc 17
+  s_d8048c9cf9bfc5::t_daeb9a3b9b3f9f 632
+  s_d8048c9cf9bfc5::t_75b05252e39410 773
+  s_d8048c9cf9bfc5::t_58ded14d4e6817 839
+Package.swift
+  s_d8048c9cf9bfc5::t_2b62646d5c8451 5,20
+Sources/ClipboardManager/UI/AboutView.swift
+  s_d8048c9cf9bfc5::t_8ea674d5d3742a 81
+  s_d8048c9cf9bfc5::t_89ebd2285835eb 53
+Sources/ClipboardManager/UI/Panels/ScreenHelper.swift
+  s_d8048c9cf9bfc5::t_1af114af133658 12-13,15,18,38-39
+  s_d8048c9cf9bfc5::t_78027636b819a2 5-11,14,16-17,19-37
+README.md
+  s_d8048c9cf9bfc5::t_957b08fb93a265 91
+  s_d8048c9cf9bfc5::t_f27640c58d57f9 17-19,21-23
+  s_d8048c9cf9bfc5::t_b709722a61208e 29
+  s_d8048c9cf9bfc5::t_4cfc18724caf6a 1,35,63-64
+Resources/Info.plist
+  s_d8048c9cf9bfc5::t_17f310f82abb14 8,10,16,18
+  s_d8048c9cf9bfc5::t_77ce6c95b80eb3 22,24
+Sources/ClipboardManagerCore/Services/PasteService.swift
+  s_d8048c9cf9bfc5::t_55205e15edfc3a 61,72-80,84-86,92-93
+scripts/build-app.sh
+  s_d8048c9cf9bfc5::t_e3f5a3e0af10df 6-7,18,24,29-31
+Sources/ClipboardManagerCore/Services/ClipboardMonitor.swift
+  s_d8048c9cf9bfc5::t_a4efcb7790980c 57-58,63,66,112-113
+  s_d8048c9cf9bfc5::t_3e5706b480ef62 3,17-24,67-69,78-84,86,89,95-98,102-107,131-132,137-149,151,153,176-189
+  s_d8048c9cf9bfc5::t_c87ba611d5c580 150,152,154-175
+  s_d8048c9cf9bfc5::t_dd18cfe536f920 85,87-88,90-94
+  s_d8048c9cf9bfc5::t_7ecad8003b80a9 190
+Sources/ClipboardManager/Services/UpdateChecker.swift
+  s_d8048c9cf9bfc5::t_8bbeaab82eb944 13
+  s_d8048c9cf9bfc5::t_5a7a39c9e58a03 51,53,67,71-72,83-90,102-106,136-153
+  s_d8048c9cf9bfc5::t_54b5df3de4bd83 292
+  s_d8048c9cf9bfc5::t_7e94a69d222d54 10
+  s_d8048c9cf9bfc5::t_ce5f1ea4a7548a 262,264-265
+  s_d8048c9cf9bfc5::t_043804040f33d3 241-243
+  s_d8048c9cf9bfc5::t_bdd099958ecf42 154
+Sources/ClipboardManager/AppDelegate.swift
+  s_d8048c9cf9bfc5::t_a173da3b5b2739 32
+  s_d8048c9cf9bfc5::t_1f0e134f1318b3 238
+  s_d8048c9cf9bfc5::t_0df60ebfad018e 241-251
+  s_d8048c9cf9bfc5::t_cf3d0c53fa28e9 290
+  s_d8048c9cf9bfc5::t_d8c332a7633f7d 302
+  s_d8048c9cf9bfc5::t_3500a37805ee08 366,370,387-388,397,401,417-418
+  s_d8048c9cf9bfc5::t_bcb44a088008a5 41,386,389-391,394,416,419-421
+  s_d8048c9cf9bfc5::t_edb61a2136e4d4 252-253
+  s_d8048c9cf9bfc5::t_0af98ee6a4fbb2 33-35,38-40
+  s_d8048c9cf9bfc5::t_481a7004936586 36-37
+Sources/ClipboardManagerCore/Models/ClipboardItem.swift
+  s_d8048c9cf9bfc5::t_b12b6cde899213 43,58,72,108,117-118,127
+  s_d8048c9cf9bfc5::t_4fb8eae55f2147 3-24,44,59,73
+scripts/install-local.sh
+  s_d8048c9cf9bfc5::t_742c6004997d4e 4,7,10,15,19,22-24
+Tests/ClipboardManagerCoreTests/main.swift
+  s_d8048c9cf9bfc5::t_ecf70de2563527 534-582,584-599,712
+  s_d8048c9cf9bfc5::t_00486449e519e0 216,583
+  s_d8048c9cf9bfc5::t_3b5debcc8ae05f 657,665-669
+  s_d8048c9cf9bfc5::t_9ae22c12a8f438 638-656,658-664,670-693,714
+  s_d8048c9cf9bfc5::t_fb0347ecb684b4 600-637,713
+README_CN.md
+  s_d8048c9cf9bfc5::t_4cfc18724caf6a 1,33,36,61-62
+  s_d8048c9cf9bfc5::t_339d6e3dedc7a0 89
+  s_d8048c9cf9bfc5::t_e5d44a0be786c5 27
+  s_d8048c9cf9bfc5::t_5b26f1973a3b0e 15-17,20-21
+Sources/ClipboardManager/UI/PanelViewModel.swift
+  s_d8048c9cf9bfc5::t_00819b5becce24 176,624-626
+  s_d8048c9cf9bfc5::t_031a6b9bcaf9f5 359,366
+  s_d8048c9cf9bfc5::t_7b1c32781c663b 234-236,238-247,266-267,271,275,278-280
+  s_d8048c9cf9bfc5::t_4500f5921a1cce 130-138,141-142,153,165
+  s_d8048c9cf9bfc5::t_5d9f8c3890840c 410-412
+  s_d8048c9cf9bfc5::t_5da6ee737660f4 17-20
+  s_d8048c9cf9bfc5::t_29c9911d4f0f6b 140,143,145-150
+  s_d8048c9cf9bfc5::t_6f0b299f95015c 155,181,194,210-214,218-221,287,300-302,310-314,320-321,339,367
+  s_d8048c9cf9bfc5::t_d9389a79ec745d 4
+  s_d8048c9cf9bfc5::t_ce08570f9ddd53 37,41-42,45-50,57,73-92,104-109,127
+  s_d8048c9cf9bfc5::t_aaca4026750bd1 151,388,395-406,420-432
+  s_d8048c9cf9bfc5::t_2f5b0b1cc726a4 164,172-174,186,201-209,215-217,224-233,237,285-286,288-295,298,303-309,315-318,322-327,329-335
+  s_d8048c9cf9bfc5::t_2724bbcb33306d 340,354,360-365,368-373
+  s_d8048c9cf9bfc5::t_d24e26fe7dfbd5 355-358
+  s_d8048c9cf9bfc5::t_6c9f463df9a1ad 450,456,462
+  s_d8048c9cf9bfc5::t_ef255941e78b82 43-44
+  s_d8048c9cf9bfc5::t_143750eef5c3b7 341-353
+  s_d8048c9cf9bfc5::t_5a4b41ad80c383 14-15
+  s_d8048c9cf9bfc5::t_d33195cae8eefe 248-265,268-270,272-274,276-277,281-284
+  s_d8048c9cf9bfc5::t_5d6347ae06c989 156,158-161,166-171,175
+  s_d8048c9cf9bfc5::t_4c3905b52524d2 413,435,441-442
+  s_d8048c9cf9bfc5::t_0216a88d63e171 152
+  s_d8048c9cf9bfc5::t_81a155119847a6 154
+Sources/ClipboardManager/UI/Panels/BottomPanelController.swift
+  s_d8048c9cf9bfc5::t_43727e93ec4f2a 88,90
+  s_d8048c9cf9bfc5::t_27a03c1a4e31fc 78
+  s_d8048c9cf9bfc5::t_12e1e6e8789a8f 156
+  s_d8048c9cf9bfc5::t_3e44b69b366b95 84,104
+scripts/make-pkg.sh
+  s_d8048c9cf9bfc5::t_6765bb4dfb31d9 11-12,22,49,61,79
+  s_d8048c9cf9bfc5::t_eb74b736ab3fc3 78,80
+Sources/ClipboardManager/UI/SettingsView.swift
+  s_d8048c9cf9bfc5::t_6e3a8c0485c574 36-37,59-60
+  s_d8048c9cf9bfc5::t_65083c2370f6a9 7-28,39,44-48,62,65-66,73-89,93,101-110,113,124-132,151-158,160-169,171,174-175,177-179,182-185,187
+  s_d8048c9cf9bfc5::t_d27e09f34a975c 286-289,291-303,305-312,321
+  s_d8048c9cf9bfc5::t_b40926f74062dc 121
+  s_d8048c9cf9bfc5::t_e39c6ee0c7b5d1 188,1036-1037,1039-1040,1043-1045,1047,1049,1051-1052,1077-1080
+  s_d8048c9cf9bfc5::t_1ad5124cdf7deb 1046,1050,1054
+  s_d8048c9cf9bfc5::t_c54125b44d8b65 170,176,180-181
+  s_d8048c9cf9bfc5::t_2a51971281d345 508-516,527,529,531-540,547-548,553-571,594-669
+  s_d8048c9cf9bfc5::t_4e624be9d5ab76 551
+  s_d8048c9cf9bfc5::t_40fe0fa0797fef 280,290,304,313-320
+  s_d8048c9cf9bfc5::t_63c71891495c54 517-526,528,530,541,572-593
+  s_d8048c9cf9bfc5::t_d890af7b8a6499 159,172-173,186
+  s_d8048c9cf9bfc5::t_21e2962799bdec 542,549-550,552
+  s_d8048c9cf9bfc5::t_edbb85dbf682c6 1035,1038,1041-1042,1048,1053,1055-1076
+  s_d8048c9cf9bfc5::t_f39318b07d6122 543-546
+  s_d8048c9cf9bfc5::t_f89bbd81fc9f97 189
+Sources/ClipboardManagerCore/Services/AppPaths.swift
+  s_d8048c9cf9bfc5::t_ff1e5122807a91 1-43
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.21",
+  "base_commit_sha": "d9e1176b7569cbcfe0e615d08b6b9eef128b8acb",
+  "prompts": {},
+  "sessions": {
+    "s_d8048c9cf9bfc5": {
+      "agent_id": {
+        "tool": "cursor",
+        "id": "aecfab03-5415-43b3-9ac9-22547c4c79c5",
+        "model": "grok-4.5"
+      },
+      "human_author": "BaaKoo <hu1529508986@gmail.com>"
+    }
+  }
+}
