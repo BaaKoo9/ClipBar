@@ -20,7 +20,7 @@ struct SnapshotBarView: View {
     private static let cardHeight: CGFloat = 140
     private static let cardSpacing: CGFloat = 10
     /// 与 BottomPanelController 保持一致。
-    static let panelHeight: CGFloat = 310
+    static let panelHeight: CGFloat = 318
 
     var body: some View {
         snapshotContent
@@ -28,9 +28,8 @@ struct SnapshotBarView: View {
 
     private var snapshotContent: some View {
         VStack(spacing: 0) {
-            topBar
-            filterBar
-            Divider()
+            chromeBar
+            Divider().opacity(0.55)
 
             // 固定内容区高度：空状态与有卡片时同高，避免切筛选时上下跳动
             Group {
@@ -43,7 +42,7 @@ struct SnapshotBarView: View {
             .frame(height: Self.cardHeight + 16)
             .frame(maxWidth: .infinity)
 
-            Divider()
+            Divider().opacity(0.55)
             hintBar
         }
         // 入队提示改由侧边队列窗承担，面板内不再插入 queueBar，避免顶起卡片行
@@ -53,106 +52,74 @@ struct SnapshotBarView: View {
                 RoundedRectangle(cornerRadius: 20, style: .continuous)
                     .fill(.regularMaterial)
                 RoundedRectangle(cornerRadius: 20, style: .continuous)
-                    .fill(
-                        LinearGradient(
-                            colors: [
-                                Color.primary.opacity(0.06),
-                                Color.clear,
-                                Color.accentColor.opacity(0.04)
-                            ],
-                            startPoint: .topLeading,
-                            endPoint: .bottomTrailing
-                        )
-                    )
+                    .fill(BrandTheme.panelWash)
             }
         }
         .clipShape(RoundedRectangle(cornerRadius: 20, style: .continuous))
         .overlay(
             RoundedRectangle(cornerRadius: 20, style: .continuous)
-                .stroke(Color.primary.opacity(0.10), lineWidth: 1)
+                .stroke(BrandTheme.panelStroke, lineWidth: 1)
         )
-        .shadow(color: Color.black.opacity(0.22), radius: 36, y: 12)
+        .shadow(color: Color.black.opacity(0.28), radius: 36, y: 12)
         .onAppear {
             searchFocused = true
         }
         .onChange(of: viewModel.searchText) { _, _ in
             viewModel.searchDidChange()
         }
-    }
-
-    // MARK: - 顶栏
-
-    private var topBar: some View {
-        HStack(spacing: 10) {
-            Image(systemName: "magnifyingglass")
-                .font(.system(size: 12))
-                .foregroundStyle(.secondary)
-
-            TextField("搜索历史…", text: $viewModel.searchText)
-                .textFieldStyle(.plain)
-                .font(.system(size: 13))
-                .focused($searchFocused)
-                .onKeyPress(.leftArrow) {
-                    viewModel.moveSelection(offset: -1)
-                    return .handled
-                }
-                .onKeyPress(.rightArrow) {
-                    viewModel.moveSelection(offset: 1)
-                    return .handled
-                }
-                .onKeyPress(.escape) {
-                    viewModel.requestClose()
-                    return .handled
-                }
-                .onKeyPress { press in
-                    if press.modifiers.contains(.command), press.key == .return {
-                        viewModel.enqueueSelected()
-                        return .handled
-                    }
-                    return .ignored
-                }
-                .onSubmit {
-                    viewModel.pasteSelected()
-                }
-
-            Button {
-                viewModel.openSettings()
-            } label: {
-                Image(systemName: "gearshape")
-                    .font(.system(size: 12))
-                    .foregroundStyle(.secondary)
-                    .frame(width: 22, height: 22)
-            }
-            .buttonStyle(.plain)
-            .help("设置")
+        .popover(isPresented: Binding(
+            get: { editingLabel != nil },
+            set: { if !$0 { editingLabel = nil } }
+        ), arrowEdge: .bottom) {
+            editLabelPopover
         }
-        .padding(.horizontal, 14)
-        .padding(.vertical, 8)
+        .alert(
+            "删除标签",
+            isPresented: Binding(
+                get: { labelPendingDelete != nil },
+                set: { if !$0 { labelPendingDelete = nil } }
+            ),
+            presenting: labelPendingDelete
+        ) { label in
+            Button("取消", role: .cancel) { labelPendingDelete = nil }
+            Button("删除", role: .destructive) {
+                viewModel.deleteLabel(id: label.id)
+                labelPendingDelete = nil
+            }
+        } message: { label in
+            Text("确定删除「\(label.name)」？已打在条目上的该标签也会移除。")
+        }
     }
 
-    // MARK: - 分类筛选
+    // MARK: - 顶栏（品牌 + 筛选 + 搜索）
 
-    private var filterBar: some View {
-        HStack(spacing: 6) {
+    private var chromeBar: some View {
+        HStack(spacing: 10) {
+            brandMark
+
             ScrollView(.horizontal, showsIndicators: false) {
                 HStack(spacing: 6) {
-                    FilterChip(title: "全部", isSelected: viewModel.filterKind == nil && viewModel.filterLabelID == nil) {
+                    FilterChip(
+                        title: "全部",
+                        systemImage: "square.grid.2x2",
+                        isSelected: viewModel.filterKind == nil && viewModel.filterLabelID == nil
+                    ) {
                         viewModel.setFilter(nil)
                         viewModel.setLabelFilter(nil)
                     }
-                    FilterChip(title: "文本", isSelected: viewModel.filterKind == .text) {
+                    FilterChip(title: "文本", systemImage: "text.alignleft", isSelected: viewModel.filterKind == .text) {
                         viewModel.setLabelFilter(nil)
                         viewModel.setFilter(.text)
                     }
-                    FilterChip(title: "链接", isSelected: viewModel.filterKind == .link) {
+                    FilterChip(title: "链接", systemImage: "link", isSelected: viewModel.filterKind == .link) {
                         viewModel.setLabelFilter(nil)
                         viewModel.setFilter(.link)
                     }
-                    FilterChip(title: "图片", isSelected: viewModel.filterKind == .image) {
+                    FilterChip(title: "图片", systemImage: "photo", isSelected: viewModel.filterKind == .image) {
                         viewModel.setLabelFilter(nil)
                         viewModel.setFilter(.image)
                     }
-                    FilterChip(title: "文件", isSelected: viewModel.filterKind == .file) {
+                    FilterChip(title: "文件", systemImage: "doc", isSelected: viewModel.filterKind == .file) {
                         viewModel.setLabelFilter(nil)
                         viewModel.setFilter(.file)
                     }
@@ -161,7 +128,8 @@ struct SnapshotBarView: View {
                         FilterChip(
                             title: label.name,
                             isSelected: viewModel.filterLabelID == label.id,
-                            tint: LabelColor.color(for: label.color)
+                            tint: LabelColor.color(for: label.color),
+                            style: .labelDot
                         ) {
                             if viewModel.filterLabelID == label.id {
                                 viewModel.setLabelFilter(nil)
@@ -212,7 +180,7 @@ struct SnapshotBarView: View {
                             .font(.system(size: 11, weight: .semibold))
                             .foregroundStyle(.secondary)
                             .frame(width: 24, height: 24)
-                            .background(Color.primary.opacity(0.08), in: Circle())
+                            .background(Color.primary.opacity(0.10), in: Circle())
                     }
                     .buttonStyle(.plain)
                     .help("新建标签")
@@ -236,38 +204,95 @@ struct SnapshotBarView: View {
                         )
                     )
                 }
-                .padding(.leading, 14)
-                .padding(.trailing, 8)
             }
 
-            Text("\(viewModel.items.count) 条")
-                .font(.system(size: 10))
+            Text("\(viewModel.items.count)")
+                .font(.system(size: 10, weight: .medium).monospacedDigit())
                 .foregroundStyle(.tertiary)
-                .padding(.trailing, 14)
+
+            searchField
+            settingsButton
         }
-        .padding(.bottom, 8)
-        .popover(isPresented: Binding(
-            get: { editingLabel != nil },
-            set: { if !$0 { editingLabel = nil } }
-        ), arrowEdge: .bottom) {
-            editLabelPopover
+        .padding(.horizontal, 14)
+        .padding(.vertical, 10)
+    }
+
+    private var brandMark: some View {
+        HStack(spacing: 6) {
+            RoundedRectangle(cornerRadius: 5, style: .continuous)
+                .fill(
+                    LinearGradient(
+                        colors: [BrandTheme.mint, BrandTheme.cyan],
+                        startPoint: .topLeading,
+                        endPoint: .bottomTrailing
+                    )
+                )
+                .frame(width: 18, height: 18)
+                .overlay(
+                    Image(systemName: "rectangle.stack.fill")
+                        .font(.system(size: 9, weight: .bold))
+                        .foregroundStyle(BrandTheme.inkTop)
+                )
+            Text("ClipBar")
+                .font(.system(size: 12.5, weight: .semibold))
+                .foregroundStyle(.primary.opacity(0.92))
         }
-        .alert(
-            "删除标签",
-            isPresented: Binding(
-                get: { labelPendingDelete != nil },
-                set: { if !$0 { labelPendingDelete = nil } }
-            ),
-            presenting: labelPendingDelete
-        ) { label in
-            Button("取消", role: .cancel) { labelPendingDelete = nil }
-            Button("删除", role: .destructive) {
-                viewModel.deleteLabel(id: label.id)
-                labelPendingDelete = nil
-            }
-        } message: { label in
-            Text("确定删除「\(label.name)」？已打在条目上的该标签也会移除。")
+    }
+
+    private var searchField: some View {
+        HStack(spacing: 6) {
+            Image(systemName: "magnifyingglass")
+                .font(.system(size: 11, weight: .medium))
+                .foregroundStyle(.secondary)
+            TextField("搜索", text: $viewModel.searchText)
+                .textFieldStyle(.plain)
+                .font(.system(size: 12))
+                .focused($searchFocused)
+                .onKeyPress(.leftArrow) {
+                    viewModel.moveSelection(offset: -1)
+                    return .handled
+                }
+                .onKeyPress(.rightArrow) {
+                    viewModel.moveSelection(offset: 1)
+                    return .handled
+                }
+                .onKeyPress(.escape) {
+                    viewModel.requestClose()
+                    return .handled
+                }
+                .onKeyPress { press in
+                    if press.modifiers.contains(.command), press.key == .return {
+                        viewModel.enqueueSelected()
+                        return .handled
+                    }
+                    return .ignored
+                }
+                .onSubmit {
+                    viewModel.pasteSelected()
+                }
         }
+        .padding(.horizontal, 10)
+        .padding(.vertical, 6)
+        .frame(width: 148)
+        .background(Color.primary.opacity(0.08), in: Capsule(style: .continuous))
+        .overlay(
+            Capsule(style: .continuous)
+                .stroke(Color.primary.opacity(0.08), lineWidth: 1)
+        )
+    }
+
+    private var settingsButton: some View {
+        Button {
+            viewModel.openSettings()
+        } label: {
+            Image(systemName: "gearshape")
+                .font(.system(size: 12, weight: .medium))
+                .foregroundStyle(.secondary)
+                .frame(width: 26, height: 26)
+                .background(Color.primary.opacity(0.08), in: Circle())
+        }
+        .buttonStyle(.plain)
+        .help("设置")
     }
 
     private var addLabelPopover: some View {
@@ -358,8 +383,9 @@ struct SnapshotBarView: View {
                         .frame(width: 14)
                         .id("list-leading-inset")
 
-                    ForEach(viewModel.items) { item in
+                    ForEach(Array(viewModel.items.enumerated()), id: \.element.id) { index, item in
                         SnapshotCard(
+                            index: index + 1,
                             item: item,
                             labels: viewModel.labels,
                             isSelected: item.id == viewModel.selectedID,
@@ -484,7 +510,7 @@ struct SnapshotBarView: View {
             Spacer()
             if viewModel.pasteQueue.count > 0 {
                 Text("队列 \(viewModel.pasteQueue.count) 项 · 侧边窗可查看")
-                    .foregroundStyle(Color.primary.opacity(0.78))
+                    .foregroundStyle(BrandTheme.accent.opacity(0.9))
                     .fontWeight(.medium)
             } else {
                 Text("\(viewModel.enqueueHotKeyLabel) 入队 · \(viewModel.dequeueHotKeyLabel) 出队")
@@ -501,32 +527,75 @@ struct SnapshotBarView: View {
 // MARK: - 分类筛选 Chip
 
 private struct FilterChip: View {
+    enum Style {
+        case brandFill
+        case labelDot
+    }
+
     let title: String
+    var systemImage: String? = nil
     let isSelected: Bool
-    var tint: Color = Color.accentColor
+    var tint: Color = BrandTheme.accent
+    var style: Style = .brandFill
     let action: () -> Void
 
     var body: some View {
         Button(action: action) {
-            Text(title)
-                .font(.system(size: 11, weight: isSelected ? .semibold : .medium))
-                .foregroundStyle(isSelected ? .white : .secondary)
-                .padding(.horizontal, 12)
-                .padding(.vertical, 5)
-                .background(
-                    Capsule(style: .continuous)
-                        .fill(isSelected ? tint.opacity(0.78) : Color.primary.opacity(0.08))
-                        .shadow(color: isSelected ? tint.opacity(0.18) : .clear, radius: 5, y: 2)
-                )
+            HStack(spacing: 5) {
+                if style == .labelDot {
+                    Circle()
+                        .fill(tint)
+                        .frame(width: isSelected ? 7 : 6, height: isSelected ? 7 : 6)
+                } else if let systemImage {
+                    Image(systemName: systemImage)
+                        .font(.system(size: 9, weight: .semibold))
+                }
+                Text(title)
+                    .font(.system(size: 11, weight: isSelected ? .semibold : .medium))
+            }
+            .foregroundStyle(foreground)
+            .padding(.horizontal, 11)
+            .padding(.vertical, 5)
+            .background(
+                Capsule(style: .continuous)
+                    .fill(fill)
+            )
+            .overlay(
+                Capsule(style: .continuous)
+                    .stroke(stroke, lineWidth: isSelected && style == .labelDot ? 1.25 : 0)
+            )
         }
         .buttonStyle(.plain)
         .animation(.easeOut(duration: 0.12), value: isSelected)
+    }
+
+    private var foreground: Color {
+        switch style {
+        case .brandFill:
+            return isSelected ? BrandTheme.inkTop : .secondary
+        case .labelDot:
+            return isSelected ? .primary.opacity(0.92) : .secondary
+        }
+    }
+
+    private var fill: Color {
+        switch style {
+        case .brandFill:
+            return isSelected ? BrandTheme.accent.opacity(0.92) : Color.primary.opacity(0.10)
+        case .labelDot:
+            return isSelected ? Color.primary.opacity(0.12) : Color.primary.opacity(0.08)
+        }
+    }
+
+    private var stroke: Color {
+        style == .labelDot && isSelected ? BrandTheme.selectedStroke : .clear
     }
 }
 
 // MARK: - 快照卡片
 
 private struct SnapshotCard: View {
+    let index: Int
     let item: ClipboardItem
     let labels: [ClipboardLabel]
     let isSelected: Bool
@@ -562,22 +631,22 @@ private struct SnapshotCard: View {
                 .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
                 .background(
                     RoundedRectangle(cornerRadius: 14, style: .continuous)
-                        .fill(
-                            isSelected
-                                ? Color.accentColor.opacity(0.72)
-                                : (isHovering ? Color.primary.opacity(0.12) : Color.primary.opacity(0.085))
-                        )
+                        .fill(isSelected ? BrandTheme.cardFillSelected : (isHovering ? BrandTheme.cardFillHover : BrandTheme.cardFill))
                         .shadow(
-                            color: isSelected ? Color.accentColor.opacity(0.22) : Color.black.opacity(isHovering ? 0.12 : 0.06),
-                            radius: isSelected ? 8 : 6,
+                            color: isSelected
+                                ? BrandTheme.selectedStroke.opacity(0.35)
+                                : Color.black.opacity(isHovering ? 0.14 : 0.08),
+                            radius: isSelected ? 10 : 5,
                             y: isSelected ? 3 : 2
                         )
                 )
                 .overlay(
                     RoundedRectangle(cornerRadius: 14, style: .continuous)
                         .stroke(
-                            isSelected ? Color.white.opacity(0.22) : Color.primary.opacity(isHovering ? 0.14 : 0.07),
-                            lineWidth: isSelected ? 1.5 : 1
+                            isSelected
+                                ? BrandTheme.selectedStroke
+                                : Color.primary.opacity(isHovering ? 0.16 : 0.08),
+                            lineWidth: isSelected ? 2 : 1
                         )
                 )
                 .scaleEffect(isSelected ? 1.02 : 1.0)
@@ -590,13 +659,11 @@ private struct SnapshotCard: View {
                     CardIconButton(
                         systemName: item.pinned ? "pin.slash" : "pin",
                         help: item.pinned ? "取消置顶" : "置顶",
-                        isSelected: isSelected,
                         action: onTogglePin
                     )
                     CardIconButton(
                         systemName: "xmark",
                         help: "删除",
-                        isSelected: isSelected,
                         action: onDelete
                     )
                 }
@@ -613,32 +680,37 @@ private struct SnapshotCard: View {
 
     private var headerRow: some View {
         HStack(spacing: 5) {
-            sourceIcon
-            Text(headerTitle)
-                .font(.system(size: 10, weight: .medium))
-                .foregroundStyle(isSelected ? Color.white.opacity(0.9) : Color.secondary)
-                .lineLimit(1)
+            Text("\(index)")
+                .font(.system(size: 12, weight: .bold).monospacedDigit())
+                .foregroundStyle(Color.secondary.opacity(0.9))
+                .frame(width: 16, alignment: .leading)
 
+            Image(systemName: iconName)
+                .font(.system(size: 10, weight: .semibold))
+                .foregroundStyle(isSelected ? BrandTheme.selectedStroke : Color.primary.opacity(0.55))
+
+            Spacer(minLength: 0)
+
+            Text(RelativeTime.string(from: item.updatedAt))
+                .font(.system(size: 9, weight: .medium))
+                .foregroundStyle(Color.secondary.opacity(0.9))
+            // 悬停操作按钮叠在卡片外层，避免嵌套 Button
+            Color.clear.frame(width: isHovering ? 44 : 0, height: 1)
+        }
+        .frame(height: 18)
+    }
+
+    private var footerRow: some View {
+        HStack(spacing: 5) {
+            labelDots
+            sourceIcon
+            Spacer(minLength: 0)
             if item.pinned {
                 Image(systemName: "pin.fill")
                     .font(.system(size: 9))
-                    .foregroundStyle(isSelected ? .white : .orange)
+                    .foregroundStyle(BrandTheme.selectedStroke)
             }
-
-            Spacer(minLength: 0)
-            // 悬停操作按钮叠在卡片外层，避免嵌套 Button
-            Color.clear.frame(width: isHovering ? 48 : 0, height: 1)
         }
-        .frame(height: 20)
-    }
-
-    private var headerTitle: String {
-        if itemLabels.isEmpty {
-            return typeLabel
-        }
-        let names = itemLabels.prefix(2).map(\.name).joined(separator: " · ")
-        let more = itemLabels.count > 2 ? " +\(itemLabels.count - 2)" : ""
-        return "\(typeLabel) · \(names)\(more)"
     }
 
     @ViewBuilder
@@ -647,22 +719,9 @@ private struct SnapshotCard: View {
             Image(nsImage: icon)
                 .resizable()
                 .interpolation(.high)
-                .frame(width: 14, height: 14)
-                .clipShape(RoundedRectangle(cornerRadius: 3, style: .continuous))
-        } else {
-            Image(systemName: iconName)
-                .font(.system(size: 10, weight: .semibold))
-                .foregroundStyle(isSelected ? Color.white.opacity(0.9) : Color.secondary)
-        }
-    }
-
-    private var footerRow: some View {
-        HStack(spacing: 4) {
-            labelDots
-            Spacer(minLength: 0)
-            Text(RelativeTime.string(from: item.updatedAt))
-                .font(.system(size: 9, weight: .medium))
-                .foregroundStyle(isSelected ? Color.white.opacity(0.7) : Color.secondary.opacity(0.9))
+                .frame(width: 15, height: 15)
+                .clipShape(RoundedRectangle(cornerRadius: 3.5, style: .continuous))
+                .opacity(0.95)
         }
     }
 
@@ -674,13 +733,13 @@ private struct SnapshotCard: View {
                 ForEach(shown) { label in
                     Circle()
                         .fill(LabelColor.color(for: label.color))
-                        .frame(width: 8, height: 8)
+                        .frame(width: 7, height: 7)
                         .overlay(Circle().stroke(Color.primary.opacity(0.12), lineWidth: 0.5))
                 }
                 if itemLabels.count > 3 {
                     Text("+\(itemLabels.count - 3)")
                         .font(.system(size: 8, weight: .semibold))
-                        .foregroundStyle(isSelected ? Color.white.opacity(0.8) : .secondary)
+                        .foregroundStyle(.secondary)
                         .padding(.leading, 4)
                 }
             }
@@ -698,7 +757,7 @@ private struct SnapshotCard: View {
                 .lineLimit(3)
                 .lineSpacing(1)
                 .multilineTextAlignment(.leading)
-                .foregroundStyle(isSelected ? .white : .primary)
+                .foregroundStyle(.primary.opacity(0.92))
                 .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
         }
     }
@@ -714,7 +773,8 @@ private struct SnapshotCard: View {
         while let range = lowerText.range(of: lowerQuery, range: searchStart..<lowerText.endIndex) {
             if let attrRange = Range(range, in: attributed) {
                 attributed[attrRange].font = .system(size: 12, weight: .bold)
-                attributed[attrRange].foregroundColor = isSelected ? .white : .accentColor
+                attributed[attrRange].foregroundColor = Color(red: 0.12, green: 0.10, blue: 0.06)
+                attributed[attrRange].backgroundColor = BrandTheme.searchHit.opacity(0.92)
             }
             if range.upperBound == searchStart { break }
             searchStart = range.upperBound
@@ -728,15 +788,6 @@ private struct SnapshotCard: View {
         case .link: "link"
         case .image: "photo"
         case .file: "doc"
-        }
-    }
-
-    private var typeLabel: String {
-        switch item.kind {
-        case .text: "文本"
-        case .link: "链接"
-        case .image: "图片"
-        case .file: "文件"
         }
     }
 
@@ -789,19 +840,16 @@ enum LabelColor {
 private struct CardIconButton: View {
     let systemName: String
     let help: String
-    let isSelected: Bool
     let action: () -> Void
 
     var body: some View {
         Button(action: action) {
             Image(systemName: systemName)
                 .font(.system(size: 9, weight: .bold))
-                .foregroundStyle(isSelected ? Color.accentColor : Color.primary.opacity(0.75))
+                .foregroundStyle(Color.primary.opacity(0.8))
                 .frame(width: 20, height: 20)
-                .background(
-                    (isSelected ? Color.white : Color.primary.opacity(0.08)),
-                    in: Circle()
-                )
+                .background(Color.primary.opacity(0.12), in: Circle())
+                .overlay(Circle().stroke(Color.white.opacity(0.12), lineWidth: 1))
         }
         .buttonStyle(.plain)
         .help(help)

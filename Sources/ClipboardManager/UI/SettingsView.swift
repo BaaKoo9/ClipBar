@@ -98,13 +98,12 @@ struct SettingsView: View {
             }
         }
         .frame(width: 720, height: 560)
-        .background(.ultraThinMaterial)
+        .background(Color(nsColor: .windowBackgroundColor))
         .clipShape(RoundedRectangle(cornerRadius: 20, style: .continuous))
         .overlay(
             RoundedRectangle(cornerRadius: 20, style: .continuous)
-                .stroke(Color.primary.opacity(0.08), lineWidth: 1)
+                .stroke(Color.primary.opacity(0.10), lineWidth: 1)
         )
-        .shadow(color: Color.black.opacity(0.18), radius: 40, y: 14)
         .onAppear {
             reloadLabels()
             refreshUpdateState()
@@ -123,7 +122,7 @@ struct SettingsView: View {
         HStack(spacing: 8) {
             Image(systemName: "rectangle.stack")
                 .font(.system(size: 13, weight: .medium))
-                .foregroundStyle(Color.accentColor)
+                .foregroundStyle(BrandTheme.accent)
 
             Text("ClipBar 设置")
                 .font(.system(size: 14, weight: .semibold))
@@ -174,13 +173,13 @@ struct SettingsView: View {
                                 .frame(width: 6, height: 6)
                         }
                     }
-                    .foregroundStyle(selectedPane == pane ? Color.white : Color.primary.opacity(0.9))
+                    .foregroundStyle(selectedPane == pane ? BrandTheme.inkTop.opacity(0.92) : Color.primary.opacity(0.9))
                     .padding(.horizontal, 10)
                     .padding(.vertical, 9)
                     .frame(maxWidth: .infinity, alignment: .leading)
                     .background(
                         RoundedRectangle(cornerRadius: 8, style: .continuous)
-                            .fill(selectedPane == pane ? Color.accentColor : Color.primary.opacity(0.04))
+                            .fill(selectedPane == pane ? BrandTheme.accentSoft : Color.primary.opacity(0.04))
                     )
                 }
                 .buttonStyle(.plain)
@@ -378,10 +377,21 @@ struct SettingsView: View {
                         Image(systemName: generalSaveFlash ? "checkmark" : "square.and.arrow.down")
                         Text(generalSaveFlash ? "已保存" : "保存设置")
                     }
+                    .font(.system(size: 12, weight: .semibold))
+                    .foregroundStyle(BrandTheme.inkTop.opacity(0.92))
+                    .padding(.horizontal, 14)
+                    .padding(.vertical, 7)
                     .frame(minWidth: 88)
+                    .background(
+                        RoundedRectangle(cornerRadius: 8, style: .continuous)
+                            .fill(
+                                BrandTheme.accentSoft.opacity(
+                                    (!generalDirty && !generalSaveFlash) || !isRetentionDaysValid ? 0.45 : 1
+                                )
+                            )
+                    )
                 }
-                .buttonStyle(.borderedProminent)
-                .controlSize(.regular)
+                .buttonStyle(.plain)
                 .disabled((!generalDirty && !generalSaveFlash) || !isRetentionDaysValid)
                 .keyboardShortcut("s", modifiers: .command)
             }

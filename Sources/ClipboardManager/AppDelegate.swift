@@ -395,8 +395,19 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
 
     private func showSettingsWindow() {
         let preferredSize = NSSize(width: 720, height: 560)
+        // 尺寸/层级改过时强制重建，避免沿用带留白灰底的旧窗
+        if let existing = settingsWindow, existing.frame.size != preferredSize {
+            existing.orderOut(nil)
+            settingsWindow = nil
+        }
         if settingsWindow == nil {
             let hosting = NSHostingController(rootView: SettingsView())
+            hosting.view.wantsLayer = true
+            hosting.view.layer?.backgroundColor = NSColor.clear.cgColor
+            hosting.view.layer?.cornerRadius = 20
+            hosting.view.layer?.cornerCurve = .continuous
+            hosting.view.layer?.masksToBounds = true
+
             let window = PanelWindow(
                 contentRect: NSRect(origin: .zero, size: preferredSize),
                 styleMask: [.borderless, .fullSizeContentView],
@@ -406,6 +417,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
             window.contentViewController = hosting
             window.isOpaque = false
             window.backgroundColor = .clear
+            window.contentView?.wantsLayer = true
+            window.contentView?.layer?.backgroundColor = NSColor.clear.cgColor
+            // 圆角由 layer mask 裁出；系统阴影跟不透明像素走，不再垫一层灰底
             window.hasShadow = true
             window.isMovableByWindowBackground = true
             window.level = .normal
@@ -416,6 +430,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         if let settingsWindow {
             settingsWindow.setContentSize(preferredSize)
             ScreenHelper.centerAfterLayout(settingsWindow, preferredSize: preferredSize, reason: "设置窗居中")
+            settingsWindow.invalidateShadow()
             NSApp.activate(ignoringOtherApps: true)
             settingsWindow.makeKeyAndOrderFront(nil)
         }

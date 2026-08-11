@@ -79,14 +79,19 @@ final class ToastWindowController {
     // MARK: - 队列常驻窗口
 
     private static let queueWidth: CGFloat = 340
-    private static let queueHeaderHeight: CGFloat = 44
+    private static let queueHeaderHeight: CGFloat = 48
     private static let queueRowHeight: CGFloat = 32
+    private static let queueRowSpacing: CGFloat = 6
     private static let queueMaxVisibleRows = 10
     private static let queuePadding: CGFloat = 28
 
     private static func queueHeight(forCount count: Int) -> CGFloat {
         let rows = max(min(count, queueMaxVisibleRows), 1)
-        return queueHeaderHeight + CGFloat(rows) * queueRowHeight + queuePadding
+        let gaps = max(rows - 1, 0)
+        return queueHeaderHeight
+            + CGFloat(rows) * queueRowHeight
+            + CGFloat(gaps) * queueRowSpacing
+            + queuePadding
     }
 
     func showQueue(items: [ClipboardItem]) {
@@ -184,7 +189,7 @@ private struct ToastView: View {
         HStack(alignment: .top, spacing: 10) {
             Image(systemName: systemImage)
                 .font(.system(size: 16, weight: .semibold))
-                .foregroundStyle(Color.accentColor)
+                .foregroundStyle(BrandTheme.accent)
                 .frame(width: 24)
 
             VStack(alignment: .leading, spacing: 4) {
@@ -203,12 +208,20 @@ private struct ToastView: View {
         .padding(.horizontal, 14)
         .padding(.vertical, 10)
         .frame(width: 300, alignment: .leading)
-        .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 16, style: .continuous))
+        .background {
+            ZStack {
+                RoundedRectangle(cornerRadius: 16, style: .continuous)
+                    .fill(.regularMaterial)
+                RoundedRectangle(cornerRadius: 16, style: .continuous)
+                    .fill(BrandTheme.panelWash)
+            }
+        }
+        .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
         .overlay(
             RoundedRectangle(cornerRadius: 16, style: .continuous)
-                .stroke(Color.primary.opacity(0.08), lineWidth: 1)
+                .stroke(BrandTheme.panelStroke, lineWidth: 1)
         )
-        .shadow(color: Color.black.opacity(0.12), radius: 20, y: 8)
+        .shadow(color: Color.black.opacity(0.18), radius: 20, y: 8)
     }
 }
 
@@ -219,22 +232,42 @@ private struct QueueListView: View {
     var onClose: () -> Void
 
     private static let maxVisibleRows = 10
+    private static let rowHeight: CGFloat = 32
 
     var body: some View {
         VStack(alignment: .leading, spacing: 10) {
-            HStack(spacing: 6) {
-                Image(systemName: "list.number")
-                    .font(.system(size: 14, weight: .semibold))
-                    .foregroundStyle(Color.accentColor)
-                Text("待粘贴队列（\(items.count)）")
-                    .font(.system(size: 13.5, weight: .semibold))
-                    .frame(maxWidth: .infinity, alignment: .leading)
+            HStack(alignment: .center, spacing: 8) {
+                RoundedRectangle(cornerRadius: 5, style: .continuous)
+                    .fill(
+                        LinearGradient(
+                            colors: [BrandTheme.mint, BrandTheme.cyan],
+                            startPoint: .topLeading,
+                            endPoint: .bottomTrailing
+                        )
+                    )
+                    .frame(width: 18, height: 18)
+                    .overlay(
+                        Image(systemName: "list.number")
+                            .font(.system(size: 9, weight: .bold))
+                            .foregroundStyle(BrandTheme.inkTop)
+                    )
+
+                VStack(alignment: .leading, spacing: 1) {
+                    Text("QUEUE")
+                        .font(.system(size: 9, weight: .semibold))
+                        .foregroundStyle(.secondary)
+                        .tracking(0.8)
+                    Text("\(items.count) 项")
+                        .font(.system(size: 13.5, weight: .semibold))
+                }
+                .frame(maxWidth: .infinity, alignment: .leading)
+
                 Button(action: onClose) {
                     Image(systemName: "xmark")
                         .font(.system(size: 11, weight: .semibold))
                         .foregroundStyle(.secondary)
                         .frame(width: 24, height: 24)
-                        .background(Color.primary.opacity(0.06), in: Circle())
+                        .background(Color.primary.opacity(0.08), in: Circle())
                 }
                 .buttonStyle(.plain)
                 .help("关闭提示并清空队列")
@@ -243,26 +276,36 @@ private struct QueueListView: View {
             ScrollViewReader { proxy in
                 ScrollView(.vertical, showsIndicators: items.count > Self.maxVisibleRows) {
                     // 队列最多展示约 10 行：用 VStack 避免 LazyVStack 首条入队时不绘制
-                    VStack(alignment: .leading, spacing: 0) {
+                    VStack(alignment: .leading, spacing: 6) {
                         ForEach(Array(items.enumerated()), id: \.offset) { index, item in
-                            HStack(alignment: .firstTextBaseline, spacing: 4) {
-                                Text("\(index + 1).")
-                                    .font(.system(size: 12.5, weight: .medium).monospacedDigit())
-                                    .foregroundStyle(.secondary)
+                            HStack(alignment: .center, spacing: 8) {
+                                if index == 0 {
+                                    Capsule()
+                                        .fill(BrandTheme.accent)
+                                        .frame(width: 2.5, height: 18)
+                                } else {
+                                    Color.clear.frame(width: 2.5, height: 18)
+                                }
+
+                                Text("\(index + 1)")
+                                    .font(.system(size: 14, weight: .semibold).monospacedDigit())
+                                    .foregroundStyle(BrandTheme.accent)
                                     .frame(width: 18, alignment: .leading)
+
                                 Text(truncated(item.previewLine))
                                     .font(.system(size: 12.5))
                                     .foregroundStyle(.primary.opacity(0.9))
                                     .lineLimit(1)
-                                    .multilineTextAlignment(.leading)
                                     .frame(maxWidth: .infinity, alignment: .leading)
                             }
-                            .padding(.vertical, 6)
+                            .padding(.horizontal, 10)
+                            .frame(height: Self.rowHeight)
                             .frame(maxWidth: .infinity, alignment: .leading)
+                            .background(
+                                RoundedRectangle(cornerRadius: 10, style: .continuous)
+                                    .fill(Color.primary.opacity(index == 0 ? 0.12 : 0.08))
+                            )
                             .id("queue-row-\(index)")
-                            if index < items.count - 1 {
-                                Divider()
-                            }
                         }
                     }
                     .frame(maxWidth: .infinity, alignment: .leading)
@@ -279,12 +322,20 @@ private struct QueueListView: View {
         }
         .padding(14)
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
-        .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 16, style: .continuous))
+        .background {
+            ZStack {
+                RoundedRectangle(cornerRadius: 16, style: .continuous)
+                    .fill(.regularMaterial)
+                RoundedRectangle(cornerRadius: 16, style: .continuous)
+                    .fill(BrandTheme.panelWash)
+            }
+        }
+        .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
         .overlay(
             RoundedRectangle(cornerRadius: 16, style: .continuous)
-                .stroke(Color.primary.opacity(0.08), lineWidth: 1)
+                .stroke(BrandTheme.panelStroke, lineWidth: 1)
         )
-        .shadow(color: Color.black.opacity(0.12), radius: 20, y: 8)
+        .shadow(color: Color.black.opacity(0.18), radius: 20, y: 8)
     }
 
     private func scrollToLatest(_ proxy: ScrollViewProxy) {
