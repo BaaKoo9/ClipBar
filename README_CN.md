@@ -1,66 +1,109 @@
-# ClipBar
+<p align="center">
+  <img src="docs/images/icon-256.png" width="96" alt="ClipBar 图标" />
+</p>
 
-一个**本地优先、高性能、简约**的 macOS 剪贴板管理器。键盘流设计：呼出面板 → 方向键选择 → 回车粘贴，全程不碰鼠标。
+<h1 align="center">ClipBar</h1>
+
+<p align="center">
+  <strong>本地优先的 macOS 剪贴板管理器</strong><br />
+  键盘流 · 高性能 · 简约 · 默认隐私
+</p>
+
+<p align="center">
+  <a href="README.md">English</a>
+  ·
+  <a href="https://github.com/BaaKoo9/ClipBar/releases">下载</a>
+  ·
+  <a href="https://github.com/BaaKoo9/ClipBar/releases/latest">最新 Release</a>
+</p>
+
+---
+
+快捷键呼出 → 方向键选择 → 回车粘贴，全程不必碰鼠标。
+
+<p align="center">
+  <img src="docs/images/panel.jpg" width="860" alt="ClipBar 快照条" />
+</p>
+
+## 亮点
+
+- **快照条** — 底部横向卡片，支持类型筛选与自定义标签
+- **顺序粘贴** — 入队复制、出队粘贴，侧边队列常驻
+- **即时搜索** — 关键词高亮；`#标签` 快速筛选
+- **本地优先** — 历史仅存本机（SQLite + 图片/RTF 缓存）
+- **零第三方依赖** — 纯 Swift + SwiftUI + AppKit
+
+<p align="center">
+  <img src="docs/images/queue.jpg" width="520" alt="ClipBar 粘贴队列" />
+</p>
 
 ## 系统要求
 
-- **macOS 14 Sonoma** 及以上（含 macOS 15 Sequoia）
-- 支持 **Apple Silicon** 与 **Intel** Mac
-- 首次使用需授予「辅助功能」与「输入监控」权限（全局快捷键、自动粘贴）
-
-## 功能
-
-- 菜单栏常驻，全局快捷键呼出面板（默认 `⌥⌘V`，可录制自定义）
-- 自动记录：文本、链接、图片、文件、富文本（保留 RTF 格式）
-- **快照条**：屏幕底部横向卡片，分类筛选（全部/文本/链接/图片/文件）与自定义标签
-- 即时搜索 + 关键词高亮（支持 `#标签名`）
-- 置顶/收藏（不受容量清理影响）；粘贴后可置顶刷新排序（可关）
-- 去重：相同内容自动刷新时间，不重复堆积
-- **顺序粘贴**：`⌥⌘E` 入队（模拟 ⌘C + 自动入队），`⌥⌘D` 出队（逐条粘贴），侧边常驻队列列表
-- 标签：面板内新建/拖拽排序/右键编辑删除；设置中集中管理
-- 设置：开机自启、历史上限与保留天数、自动粘贴、忽略 App、静默检查更新、清空历史
-- **隐私：零网络权限，所有数据仅存本机**（SQLite + 图片/RTF 缓存）
-- 关于窗口：版本信息与项目链接
+| | |
+|---|---|
+| 系统 | **macOS 14 Sonoma** 及以上（含 15 Sequoia） |
+| 芯片 | Apple Silicon 与 Intel |
+| 权限 | **辅助功能** + **输入监控**（全局快捷键与自动粘贴） |
 
 ## 安装
 
-从 [Releases](https://github.com/BaaKoo9/ClipBar/releases) 下载最新 **`.pkg` 安装包**，双击后按提示安装到「应用程序」。
+从 [Releases](https://github.com/BaaKoo9/ClipBar/releases) 下载最新包：
 
-### 首次打开（未公证签名）
-
-本应用使用自签名构建，**尚未申请 Apple 开发者公证**。从网络下载后，macOS 可能会拦截首次打开，可按下列任一方式处理：
-
-1. **推荐**：在 Finder 中找到 `ClipBar`，**按住 Control 键单击**（或右键）→ 选择「打开」→ 在弹窗中再次点「打开」
-2. 或打开 **系统设置 → 隐私与安全性**，向下滚动到「已阻止使用… / 安全性」相关提示处，点击 **「仍要打开」**（文案可能随系统版本略有不同）
-
-完成上述步骤后即可正常启动。随后请在 **系统设置 → 隐私与安全性** 中为 ClipBar 开启：
-
-- **辅助功能**
-- **输入监控**
-
-两项权限均授予后，全局快捷键与自动粘贴即可使用。
-
-## 使用
-
-| 操作 | 快捷键 |
+| 产物 | 适用场景 |
 |---|---|
-| 呼出/收起面板 | `⌥⌘V` |
-| 入队复制（复制选中+入队） | `⌥⌘E` |
+| **`ClipBar-x.y.z.pkg`** | 双击按系统安装器装到「应用程序」（推荐） |
+| **`ClipBar-x.y.z.dmg`** | 打开后把 `ClipBar.app` 拖到 **Applications** |
+
+### 首次打开（未公证）
+
+当前为自签名构建，**尚未 Apple 公证**。若首次被拦截：
+
+1. **推荐**：Finder 中 **Control-单击** ClipBar →「打开」→ 再次确认「打开」
+2. 或 **系统设置 → 隐私与安全性** →「仍要打开」
+
+随后为 ClipBar 开启：
+
+- 辅助功能  
+- 输入监控  
+
+## 快速上手
+
+| 操作 | 默认快捷键 |
+|---|---|
+| 呼出 / 收起面板 | `⌥⌘V` |
+| 入队（复制选中并入队） | `⌥⌘E` |
 | 出队粘贴 | `⌥⌘D` |
 | 面板内选择 | `←` `→` |
-| 面板内粘贴选中 | 回车 或 单击卡片 |
-| 面板内入队 | `⌘+点击` 或 悬停 `⊕` 按钮 |
+| 粘贴选中项 | 回车 或 单击 |
+| 面板内入队 | `⌘`+点击 或 悬停 `⊕` |
 
 所有快捷键可在设置中自定义。
 
-## 构建
+<p align="center">
+  <img src="docs/images/settings.jpg" width="720" alt="ClipBar 设置" />
+</p>
 
-需要 macOS 14+，仅依赖 Xcode CommandLineTools（无需完整 Xcode）：
+## 功能一览
+
+- 菜单栏常驻；自动记录文本、链接、图片、文件与 RTF
+- 置顶 / 收藏（不受容量清理影响）；可选「粘贴后刷新排序」
+- 去重：相同内容刷新时间戳，不重复堆叠
+- 标签：面板内新建、拖拽排序、编辑/删除；设置中集中管理
+- 历史上限 + 可选按天保留（1–90 天，仅未置顶）
+- 忽略应用、开机自启、应用内检查更新（带下载进度）
+- 关于窗口：版本与项目链接
+
+> **剪贴板内容**不会离开本机。检查更新时才会访问 GitHub Releases（含镜像下载线路）。
+
+## 从源码构建
+
+需 macOS 14+ 与 Xcode Command Line Tools（不必装完整 Xcode）：
 
 ```bash
 ./scripts/build-app.sh          # 生成 dist/ClipBar.app
 ./scripts/make-pkg.sh           # 生成 dist/ClipBar-x.y.z.pkg
-./scripts/run-tests.sh          # 运行核心单元测试
+./scripts/make-dmg.sh           # 生成 dist/ClipBar-x.y.z.dmg
+./scripts/run-tests.sh          # 核心单元测试
 ```
 
 ## 测试
@@ -69,25 +112,24 @@
 swift run CoreTests
 ```
 
-覆盖：插入/读取、去重、搜索、置顶保护、清空、文本/图片/文件/RTF 回填、热键注册、旧库迁移、10000 条性能压测（读取 <10ms、搜索 <5ms）。
+覆盖：插入/读取、去重、搜索、置顶保护、清空、文本/图片/文件/RTF 回填、热键注册、旧库迁移、1 万条性能（读取 &lt;10ms、搜索 &lt;5ms）。
 
 ## 技术栈
 
-- Swift + SwiftUI + AppKit（零第三方依赖）
-- SQLite（系统库）：串行队列写入、延迟容量清理
-- Carbon 全局热键 + CGEventTap（辅助功能 / 输入监控权限）
-- 图片 PNG 规范化存储 + JPEG 缩略图；富文本保留 RTF
+- Swift + SwiftUI + AppKit — 无第三方 SPM 依赖
+- SQLite（系统库）：串行写入，TTL + 条数上限清理
+- Carbon 全局热键 + CGEventTap
+- PNG 存储 + JPEG 缩略图；富文本保留 RTF
 
 ## 路线图
 
 - [x] 剪贴板监听与本地存储
 - [x] 快照条、搜索、回填
-- [x] 可自定义全局快捷键（呼出/入队/出队）
+- [x] 可自定义快捷键（呼出 / 入队 / 出队）
 - [x] 顺序粘贴、置顶、忽略 App、开机自启
-- [x] App 图标、pkg 安装包、关于窗口
-- [x] 队列侧边窗 + 屏幕跟随
-- [x] 自定义标签、静默更新检查
-- [ ] 多端同步（iCloud 私有数据库）、更多类型识别（颜色、代码块）
+- [x] App 图标、pkg + dmg、关于窗口
+- [x] 队列侧边窗、自定义标签、检查更新
+- [ ] iCloud 私有同步；更多类型识别（颜色、代码块）
 
 ## 许可
 

@@ -41,14 +41,14 @@ public final class AppSettings {
         set { defaults.set(newValue, forKey: Keys.retentionEnabled) }
     }
 
-    /// 超过该天数未使用（updated_at）的未置顶条目将被删除；范围 1…30，默认展示值 7。
+    /// 超过该天数未使用（updated_at）的未置顶条目将被删除；范围 1…90，默认 7。
     public var retentionDays: Int {
         get {
             let value = defaults.integer(forKey: Keys.retentionDays)
             if value <= 0 { return 7 }
-            return min(max(value, 1), 30)
+            return min(max(value, 1), 90)
         }
-        set { defaults.set(min(max(newValue, 1), 30), forKey: Keys.retentionDays) }
+        set { defaults.set(min(max(newValue, 1), 90), forKey: Keys.retentionDays) }
     }
 
     /// 粘贴后是否把该条目的 updated_at 提前（默认开，对齐 Maccy）。

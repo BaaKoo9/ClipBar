@@ -46,6 +46,12 @@ struct SettingsView: View {
     @State private var newLabelColor = "blue"
     @State private var availableUpdateVersion: String?
     @State private var lastUpdateCheckAt: TimeInterval = 0
+    @State private var retentionDaysText: String
+    @State private var labelPendingDelete: ClipboardLabel?
+    @State private var generalDirty = false
+    @State private var generalSaveFlash = false
+    @FocusState private var retentionFieldFocused: Bool
+    @ObservedObject private var updateProgress = UpdateProgressModel.shared
 
     init() {
         let settings = AppSettings.shared
@@ -58,6 +64,7 @@ struct SettingsView: View {
         _historyLimit = State(initialValue: settings.historyLimit)
         _retentionEnabled = State(initialValue: settings.retentionEnabled)
         _retentionDays = State(initialValue: settings.retentionDays)
+        _retentionDaysText = State(initialValue: "\(settings.retentionDays)")
         _autoPaste = State(initialValue: settings.autoPasteEnabled)
         _bumpOnPaste = State(initialValue: settings.bumpOnPaste)
         _launchAtLogin = State(initialValue: SMAppService.mainApp.status == .enabled)
@@ -258,8 +265,9 @@ struct SettingsView: View {
             sectionTitle("通用")
 
             Toggle("开机时自动启动", isOn: $launchAtLogin)
-                .onChange(of: launchAtLogin) { _, enabled in
-                    setLaunchAtLogin(enabled)
+                .onChange(of: launchAtLogin) { _, _ in
+                    generalDirty = true
+                    generalSaveFlash = false
                 }
 
             HStack {
@@ -275,45 +283,54 @@ struct SettingsView: View {
                 }
                 .labelsHidden()
                 .frame(width: 110)
-                .onChange(of: historyLimit) { _, newValue in
-                    AppSettings.shared.historyLimit = newValue
-                    ClipboardStore.shared.enforceHistoryLimit { _ in
-                        NotificationCenter.default.post(name: .clipboardHistoryLimitChanged, object: nil)
-                    }
+                .onChange(of: historyLimit) { _, _ in
+                    generalDirty = true
+                    generalSaveFlash = false
                 }
             }
 
             Toggle("自动清理过期内容", isOn: $retentionEnabled)
-                .onChange(of: retentionEnabled) { _, enabled in
-                    AppSettings.shared.retentionEnabled = enabled
-                    if enabled {
-                        ClipboardStore.shared.enforceHistoryLimit { _ in
-                            NotificationCenter.default.post(name: .clipboardHistoryLimitChanged, object: nil)
-                        }
-                    }
+                .onChange(of: retentionEnabled) { _, _ in
+                    generalDirty = true
+                    generalSaveFlash = false
                 }
 
             if retentionEnabled {
-                HStack {
+                HStack(spacing: 8) {
                     Text("保留天数")
                     Spacer()
-                    Stepper("\(retentionDays) 天", value: $retentionDays, in: 1...30)
-                        .frame(width: 120)
-                        .onChange(of: retentionDays) { _, days in
-                            AppSettings.shared.retentionDays = days
-                            ClipboardStore.shared.enforceHistoryLimit { _ in
-                                NotificationCenter.default.post(name: .clipboardHistoryLimitChanged, object: nil)
+                    TextField("", text: $retentionDaysText)
+                        .textFieldStyle(.roundedBorder)
+                        .frame(width: 44)
+                        .multilineTextAlignment(.trailing)
+                        .focused($retentionFieldFocused)
+                        .onChange(of: retentionDaysText) { _, text in
+                            generalDirty = true
+                            generalSaveFlash = false
+                            if let days = Int(text.trimmingCharacters(in: .whitespacesAndNewlines)),
+                               (1...90).contains(days) {
+                                retentionDays = days
                             }
                         }
+                    Text("天")
+                        .foregroundStyle(.secondary)
+                    Stepper("", value: $retentionDays, in: 1...90)
+                        .labelsHidden()
+                        .onChange(of: retentionDays) { _, days in
+                            retentionDaysText = "\(days)"
+                            generalDirty = true
+                            generalSaveFlash = false
+                        }
                 }
-                Text("超过该天数未使用的未置顶条目将自动删除；置顶不受影响。")
+                Text("超过该天数未使用的未置顶条目将自动删除；置顶不受影响。可输入 1–90。")
                     .font(.system(size: 11))
                     .foregroundStyle(.tertiary)
             }
 
             Toggle("粘贴后移到最前", isOn: $bumpOnPaste)
-                .onChange(of: bumpOnPaste) { _, enabled in
-                    AppSettings.shared.bumpOnPaste = enabled
+                .onChange(of: bumpOnPaste) { _, _ in
+                    generalDirty = true
+                    generalSaveFlash = false
                 }
             Text("从历史粘贴后，将该条目提前到未置顶列表顶部（类似 Maccy 默认行为）。")
                 .font(.system(size: 11))
@@ -321,8 +338,9 @@ struct SettingsView: View {
 
             VStack(alignment: .leading, spacing: 4) {
                 Toggle("选中后自动粘贴", isOn: $autoPaste)
-                    .onChange(of: autoPaste) { _, enabled in
-                        AppSettings.shared.autoPasteEnabled = enabled
+                    .onChange(of: autoPaste) { _, _ in
+                        generalDirty = true
+                        generalSaveFlash = false
                     }
 
                 if autoPaste && !PasteService.hasAccessibilityPermission {
@@ -340,6 +358,75 @@ struct SettingsView: View {
                         .buttonStyle(.link)
                     }
                 }
+            }
+
+            Divider()
+                .padding(.top, 4)
+
+            HStack(spacing: 10) {
+                if generalSaveFlash {
+                    Label("已保存", systemImage: "checkmark.circle.fill")
+                        .font(.system(size: 12, weight: .medium))
+                        .foregroundStyle(.green)
+                        .transition(.opacity.combined(with: .move(edge: .leading)))
+                }
+                Spacer()
+                Button {
+                    saveGeneralSettings()
+                } label: {
+                    HStack(spacing: 6) {
+                        Image(systemName: generalSaveFlash ? "checkmark" : "square.and.arrow.down")
+                        Text(generalSaveFlash ? "已保存" : "保存设置")
+                    }
+                    .frame(minWidth: 88)
+                }
+                .buttonStyle(.borderedProminent)
+                .controlSize(.regular)
+                .disabled((!generalDirty && !generalSaveFlash) || !isRetentionDaysValid)
+                .keyboardShortcut("s", modifiers: .command)
+            }
+            .padding(.top, 4)
+            .animation(.easeOut(duration: 0.18), value: generalSaveFlash)
+        }
+    }
+
+    private var isRetentionDaysValid: Bool {
+        guard retentionEnabled else { return true }
+        guard let days = Int(retentionDaysText.trimmingCharacters(in: .whitespacesAndNewlines)) else {
+            return false
+        }
+        return (1...90).contains(days)
+    }
+
+    private func saveGeneralSettings() {
+        if retentionEnabled {
+            guard let days = Int(retentionDaysText.trimmingCharacters(in: .whitespacesAndNewlines)),
+                  (1...90).contains(days) else { return }
+            retentionDays = days
+            retentionDaysText = "\(days)"
+        }
+
+        retentionFieldFocused = false
+        DispatchQueue.main.async {
+            NSApp.keyWindow?.makeFirstResponder(nil)
+        }
+
+        setLaunchAtLogin(launchAtLogin)
+        AppSettings.shared.historyLimit = historyLimit
+        AppSettings.shared.retentionEnabled = retentionEnabled
+        AppSettings.shared.retentionDays = retentionDays
+        AppSettings.shared.bumpOnPaste = bumpOnPaste
+        AppSettings.shared.autoPasteEnabled = autoPaste
+        ClipboardStore.shared.enforceHistoryLimit { _ in
+            NotificationCenter.default.post(name: .clipboardHistoryLimitChanged, object: nil)
+        }
+        generalDirty = false
+        withAnimation(.easeOut(duration: 0.18)) {
+            generalSaveFlash = true
+        }
+        DispatchQueue.main.asyncAfter(deadline: .now() + 1.6) {
+            withAnimation(.easeOut(duration: 0.2)) {
+                generalSaveFlash = false
             }
         }
     }
@@ -551,9 +638,7 @@ struct SettingsView: View {
                                 .font(.system(size: 13, weight: .medium))
                             Spacer()
                             Button(role: .destructive) {
-                                ClipboardStore.shared.deleteLabel(id: label.id) {
-                                    reloadLabels()
-                                }
+                                labelPendingDelete = label
                             } label: {
                                 Image(systemName: "trash")
                                     .font(.system(size: 11))
@@ -570,6 +655,24 @@ struct SettingsView: View {
                 .padding(.horizontal, 8)
                 .background(Color.primary.opacity(0.03), in: RoundedRectangle(cornerRadius: 10))
             }
+        }
+        .alert(
+            "删除标签",
+            isPresented: Binding(
+                get: { labelPendingDelete != nil },
+                set: { if !$0 { labelPendingDelete = nil } }
+            ),
+            presenting: labelPendingDelete
+        ) { label in
+            Button("取消", role: .cancel) { labelPendingDelete = nil }
+            Button("删除", role: .destructive) {
+                ClipboardStore.shared.deleteLabel(id: label.id) {
+                    reloadLabels()
+                }
+                labelPendingDelete = nil
+            }
+        } message: { label in
+            Text("确定删除「\(label.name)」？已打在条目上的该标签也会移除。")
         }
     }
 
@@ -611,6 +714,35 @@ struct SettingsView: View {
             Text("当前版本 \(UpdateChecker.currentVersion)")
                 .font(.system(size: 13))
 
+            if updateProgress.isBusy || updateProgress.phase != .idle {
+                VStack(alignment: .leading, spacing: 8) {
+                    Text(updateProgress.statusText.isEmpty ? "处理中…" : updateProgress.statusText)
+                        .font(.system(size: 12, weight: .medium))
+                    if case .downloading = updateProgress.phase {
+                        ProgressView(value: updateProgress.fractionCompleted)
+                            .progressViewStyle(.linear)
+                    } else if case .checking = updateProgress.phase {
+                        ProgressView()
+                            .controlSize(.small)
+                    } else if case .installing = updateProgress.phase {
+                        ProgressView()
+                            .controlSize(.small)
+                    } else if case .failed(let message) = updateProgress.phase {
+                        Text(message)
+                            .font(.system(size: 11))
+                            .foregroundStyle(.red)
+                        Button("重试下载") {
+                            UpdateChecker.checkForUpdates(interactive: true)
+                        }
+                        .buttonStyle(.borderedProminent)
+                        .controlSize(.small)
+                    }
+                }
+                .padding(12)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .background(Color.primary.opacity(0.04), in: RoundedRectangle(cornerRadius: 10))
+            }
+
             if let available = availableUpdateVersion, AppSettings.shared.shouldSurfaceUpdate {
                 VStack(alignment: .leading, spacing: 8) {
                     Label("发现新版本 \(available)", systemImage: "arrow.down.circle.fill")
@@ -621,18 +753,20 @@ struct SettingsView: View {
                             UpdateChecker.checkForUpdates(interactive: true)
                         }
                         .buttonStyle(.borderedProminent)
+                        .disabled(updateProgress.isBusy)
                         Button("稍后提醒") {
                             AppSettings.shared.dismissedUpdateVersion = available
                             refreshUpdateState()
                             NotificationCenter.default.post(name: .clipboardUpdateAvailable, object: nil)
                         }
                         .buttonStyle(.plain)
+                        .disabled(updateProgress.isBusy)
                     }
                 }
                 .padding(12)
                 .frame(maxWidth: .infinity, alignment: .leading)
                 .background(Color.orange.opacity(0.1), in: RoundedRectangle(cornerRadius: 10))
-            } else {
+            } else if !updateProgress.isBusy {
                 Text("已是最新，或暂无待处理更新。")
                     .font(.system(size: 12))
                     .foregroundStyle(.secondary)
@@ -641,16 +775,13 @@ struct SettingsView: View {
             Button("立即检查更新…") {
                 UpdateChecker.checkForUpdates(interactive: true)
             }
+            .disabled(updateProgress.isBusy)
 
             if lastUpdateCheckAt > 0 {
                 Text("上次检查：\(formattedCheckTime(lastUpdateCheckAt))")
                     .font(.system(size: 11))
                     .foregroundStyle(.tertiary)
             }
-
-            Text("应用会大约每 24 小时静默检查一次；有新版本时仅在菜单图标与本页提示，不会弹窗打扰。")
-                .font(.system(size: 11))
-                .foregroundStyle(.tertiary)
         }
     }
 

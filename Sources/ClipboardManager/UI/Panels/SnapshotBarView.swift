@@ -690,7 +690,7 @@ private struct SnapshotCard: View {
     @ViewBuilder
     private var contentBody: some View {
         if item.kind == .image {
-            SnapshotThumbnail(path: item.imagePath)
+            SnapshotThumbnail(path: item.imagePath, fallbackPath: item.originalImagePath)
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
         } else {
             Text(highlightedPreview)
@@ -839,6 +839,7 @@ private struct LabelReorderDropDelegate: DropDelegate {
 
 private struct SnapshotThumbnail: View {
     let path: String?
+    var fallbackPath: String? = nil
     @State private var image: NSImage?
 
     private static let cache = NSCache<NSString, NSImage>()
@@ -866,18 +867,30 @@ private struct SnapshotThumbnail: View {
             .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
-        .task(id: path) {
-            guard let path else { return }
-            if let cached = Self.cache.object(forKey: path as NSString) {
+        .task(id: "\(path ?? "")|\(fallbackPath ?? "")") {
+            let candidates = [
+                AppPaths.resolveExistingPath(path),
+                AppPaths.resolveExistingPath(fallbackPath)
+            ].compactMap { $0 }
+            guard let resolved = candidates.first else {
+                image = nil
+                return
+            }
+            if let cached = Self.cache.object(forKey: resolved as NSString) {
                 image = cached
                 return
             }
             let loaded = await Task.detached(priority: .utility) { () -> NSImage? in
-                NSImage(contentsOfFile: path)
+                for candidate in candidates {
+                    if let img = NSImage(contentsOfFile: candidate) { return img }
+                }
+                return nil
             }.value
             if let loaded {
-                Self.cache.setObject(loaded, forKey: path as NSString)
+                Self.cache.setObject(loaded, forKey: resolved as NSString)
                 image = loaded
+            } else {
+                image = nil
             }
         }
     }

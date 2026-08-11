@@ -2,8 +2,7 @@ import AppKit
 import ClipboardManagerCore
 import Foundation
 
-/// 检查 GitHub Release 并引导安装最新 pkg。
-/// 优先走网页重定向（不消耗 api.github.com 匿名配额），API 仅作后备。
+/// 检查 GitHub Release，优先镜像下载 pkg，校验后打开安装器并退出。
 @MainActor
 enum UpdateChecker {
     private static let owner = "BaaKoo9"
@@ -12,11 +11,19 @@ enum UpdateChecker {
     private static let apiURL = URL(string: "https://api.github.com/repos/\(owner)/\(repo)/releases/latest")!
     private static let userAgent = "ClipBar/\(currentVersion) (+https://github.com/\(owner)/\(repo))"
 
+    /// 国内直连 github.com 常超时；镜像实测可用（ghfast ~4s 下完 2.3MB）。
+    private static let downloadMirrors = [
+        "https://ghfast.top/",
+        "https://ghproxy.net/",
+    ]
+
     private struct ReleaseInfo {
         let tagName: String
         let htmlURL: String
         let body: String?
-        let pkgURL: URL?
+        let pkgName: String
+        let expectedSize: Int64?
+        let downloadURLs: [URL]
     }
 
     private struct APIRelease: Decodable {
@@ -34,11 +41,15 @@ enum UpdateChecker {
     }
 
     private struct Asset: Decodable {
+        let id: Int64
         let name: String
+        let size: Int64
         let browserDownloadURL: String
 
         enum CodingKeys: String, CodingKey {
+            case id
             case name
+            case size
             case browserDownloadURL = "browser_download_url"
         }
     }
@@ -47,30 +58,33 @@ enum UpdateChecker {
         Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "0"
     }
 
-    /// 从菜单触发：检查 → 提示 → 下载 pkg → 打开安装器。
-    /// `interactive == false` 时静默写入设置，不弹窗。
+    /// `interactive == false` 时静默写入设置；`true` 时走进度条下载并自动打开安装器。
     static func checkForUpdates(interactive: Bool = true) {
+        let progress = UpdateProgressModel.shared
         DebugLog.write("检查更新：当前版本 \(currentVersion) interactive=\(interactive)")
         if interactive {
-            ToastWindowController.shared.show(
-                title: "正在检查更新…",
-                message: "连接 GitHub Releases",
-                systemImage: "arrow.triangle.2.circlepath"
-            )
+            progress.phase = .checking
+            progress.fractionCompleted = 0
+            progress.statusText = "正在检查更新…"
         }
 
         Task {
             do {
-                let release = try await fetchLatestRelease()
+                let release = try await fetchLatestRelease(preferAPI: true)
                 let remote = normalizeVersion(release.tagName)
                 let local = normalizeVersion(currentVersion)
                 AppSettings.shared.lastUpdateCheckAt = Date().timeIntervalSince1970
-                DebugLog.write("检查更新：远程 \(remote) 本地 \(local)")
+                NotificationCenter.default.post(name: .clipboardUpdateAvailable, object: nil)
+                DebugLog.write(
+                    "检查更新：远程 \(remote) 本地 \(local) pkg=\(release.pkgName) " +
+                    "urls=\(release.downloadURLs.count) size=\(release.expectedSize ?? -1)"
+                )
 
                 if compareVersion(remote, local) <= 0 {
                     AppSettings.shared.availableUpdateVersion = nil
                     NotificationCenter.default.post(name: .clipboardUpdateAvailable, object: nil)
                     if interactive {
+                        progress.reset()
                         presentAlert(
                             title: "已是最新版本",
                             message: "当前版本 \(currentVersion)，无需更新。",
@@ -88,10 +102,11 @@ enum UpdateChecker {
                     return
                 }
 
-                guard let downloadURL = release.pkgURL else {
+                guard !release.downloadURLs.isEmpty else {
+                    progress.phase = .failed("未找到安装包")
                     presentAlert(
                         title: "发现新版本 \(remote)",
-                        message: "未找到可下载的安装包，请前往 GitHub Releases 手动下载。",
+                        message: "未找到可下载的安装包。可稍后重试，或到 Releases 手动下载。",
                         style: .warning,
                         openURL: URL(string: release.htmlURL)
                     )
@@ -102,38 +117,50 @@ enum UpdateChecker {
                 guard go else {
                     AppSettings.shared.dismissedUpdateVersion = remote
                     NotificationCenter.default.post(name: .clipboardUpdateAvailable, object: nil)
+                    progress.reset()
                     return
                 }
 
-                ToastWindowController.shared.show(
-                    title: "正在下载 \(remote)…",
-                    message: downloadURL.lastPathComponent,
-                    systemImage: "arrow.down.circle"
-                )
-                let pkgURL = try await download(from: downloadURL, named: downloadURL.lastPathComponent)
-                DebugLog.write("检查更新：已下载 \(pkgURL.path)")
-
-                NSWorkspace.shared.open(pkgURL)
-                ToastWindowController.shared.show(
-                    title: "已打开安装器",
-                    message: "按提示完成安装即可升级到 \(remote)",
-                    systemImage: "checkmark.circle"
-                )
+                try await performDownloadAndInstall(release: release, remote: remote)
             } catch {
                 DebugLog.write("检查更新失败：\(error.localizedDescription)")
                 if interactive {
+                    UpdateProgressModel.shared.phase = .failed(error.localizedDescription)
                     presentAlert(
-                        title: "检查更新失败",
-                        message: error.localizedDescription,
-                        style: .warning,
-                        openURL: latestPageURL
+                        title: "更新失败",
+                        message: error.localizedDescription + "\n\n可点击「立即检查更新」重试。",
+                        style: .warning
                     )
                 }
             }
         }
     }
 
-    /// 启动后调度：约 30s 首次静默检查，之后每 24h。
+    private static func performDownloadAndInstall(release: ReleaseInfo, remote: String) async throws {
+        let progress = UpdateProgressModel.shared
+        progress.phase = .downloading
+        progress.fractionCompleted = 0
+        progress.statusText = "正在下载 \(remote)…"
+
+        let pkgURL = try await downloadWithProgress(
+            urls: release.downloadURLs,
+            named: release.pkgName,
+            expectedSize: release.expectedSize
+        )
+        DebugLog.write("检查更新：已下载 \(pkgURL.path) (\(fileSize(pkgURL)) bytes)")
+
+        progress.phase = .installing
+        progress.fractionCompleted = 1
+        progress.statusText = "准备安装并重启…"
+
+        // 打开系统安装器；退出本进程以便覆盖 /Applications/ClipBar.app
+        // postinstall 会在安装结束后自动拉起新版本
+        NSWorkspace.shared.open(pkgURL)
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.8) {
+            NSApp.terminate(nil)
+        }
+    }
+
     static func schedulePeriodicChecks() {
         DispatchQueue.main.asyncAfter(deadline: .now() + 30) {
             runSilentIfDue()
@@ -154,59 +181,25 @@ enum UpdateChecker {
 
     // MARK: - Network
 
-    private static func fetchLatestRelease() async throws -> ReleaseInfo {
+    private static func fetchLatestRelease(preferAPI: Bool) async throws -> ReleaseInfo {
+        if preferAPI, let api = try? await fetchViaAPI() {
+            return api
+        }
         if let web = try? await fetchViaRedirect() {
             return web
         }
         return try await fetchViaAPI()
     }
 
-    /// 不走 api.github.com，避免匿名 60 次/小时配额被打满后返回 403。
     private static func fetchViaRedirect() async throws -> ReleaseInfo {
-        var request = URLRequest(url: latestPageURL)
-        request.httpMethod = "HEAD"
-        request.setValue(userAgent, forHTTPHeaderField: "User-Agent")
-        request.setValue("text/html,application/xhtml+xml", forHTTPHeaderField: "Accept")
-        request.timeoutInterval = 15
-
-        let config = URLSessionConfiguration.ephemeral
-        config.timeoutIntervalForRequest = 15
-        config.httpAdditionalHeaders = ["User-Agent": userAgent]
-        let session = URLSession(configuration: config)
-        let (_, response) = try await session.data(for: request)
-        guard let http = response as? HTTPURLResponse else {
-            throw UpdateError.invalidResponse
-        }
-        // HEAD + 跟随重定向后，最终 URL 形如 …/releases/tag/v1.0.4
-        var tagURL = http.url
-        if tagURL == nil || extractTag(from: tagURL!) == nil,
-           let location = http.value(forHTTPHeaderField: "Location"),
-           let loc = URL(string: location) {
-            tagURL = loc
-        }
-        guard let url = tagURL, let tag = extractTag(from: url) else {
-            // 部分网络对 HEAD 不友好，再试一次轻量 GET
-            return try await fetchViaRedirectGET()
-        }
-
-        let version = normalizeVersion(tag)
-        return ReleaseInfo(
-            tagName: tag,
-            htmlURL: "https://github.com/\(owner)/\(repo)/releases/tag/\(tag)",
-            body: nil,
-            pkgURL: pkgDownloadURL(version: version, tag: tag)
-        )
-    }
-
-    private static func fetchViaRedirectGET() async throws -> ReleaseInfo {
         var request = URLRequest(url: latestPageURL)
         request.httpMethod = "GET"
         request.setValue(userAgent, forHTTPHeaderField: "User-Agent")
         request.setValue("text/html,application/xhtml+xml", forHTTPHeaderField: "Accept")
-        request.timeoutInterval = 15
+        request.timeoutInterval = 20
 
         let config = URLSessionConfiguration.ephemeral
-        config.timeoutIntervalForRequest = 15
+        config.timeoutIntervalForRequest = 20
         let session = URLSession(configuration: config)
         let (_, response) = try await session.data(for: request)
         guard let http = response as? HTTPURLResponse, let url = http.url,
@@ -214,11 +207,15 @@ enum UpdateChecker {
             throw UpdateError.parseFailed
         }
         let version = normalizeVersion(tag)
+        let pkgName = "ClipBar-\(version).pkg"
+        let direct = pkgCandidateURLs(version: version, tag: tag)
         return ReleaseInfo(
             tagName: tag,
             htmlURL: "https://github.com/\(owner)/\(repo)/releases/tag/\(tag)",
             body: nil,
-            pkgURL: pkgDownloadURL(version: version, tag: tag)
+            pkgName: pkgName,
+            expectedSize: nil,
+            downloadURLs: prioritizedDownloadURLs(direct)
         )
     }
 
@@ -243,59 +240,112 @@ enum UpdateChecker {
             return name.contains("clipbar") || name.contains("clipboard-manager")
         }) ?? release.assets.first(where: { $0.name.hasSuffix(".pkg") })
 
-        let pkgURL: URL?
+        let pkgName = asset?.name ?? "ClipBar-\(version).pkg"
+        var directs: [URL] = []
         if let asset, let url = URL(string: asset.browserDownloadURL) {
-            pkgURL = url
-        } else {
-            pkgURL = pkgDownloadURL(version: version, tag: release.tagName)
+            directs.append(url)
         }
+        directs.append(contentsOf: pkgCandidateURLs(version: version, tag: release.tagName))
 
         return ReleaseInfo(
             tagName: release.tagName,
             htmlURL: release.htmlURL,
             body: release.body,
-            pkgURL: pkgURL
+            pkgName: pkgName,
+            expectedSize: asset?.size,
+            downloadURLs: prioritizedDownloadURLs(directs)
         )
     }
 
-    private static func pkgDownloadURL(version: String, tag: String) -> URL? {
-        // 优先新命名；旧 Release 资产名仍兼容
-        let candidates = [
+    private static func pkgCandidateURLs(version: String, tag: String) -> [URL] {
+        let names = [
             "ClipBar-\(version).pkg",
             "ClipBar-\(tag).pkg",
             "Clipboard-Manager-\(version).pkg",
             "Clipboard-Manager-\(tag).pkg",
         ]
-        guard let name = candidates.first else { return nil }
-        return URL(string: "https://github.com/\(owner)/\(repo)/releases/download/\(tag)/\(name)")
+        return names.compactMap {
+            URL(string: "https://github.com/\(owner)/\(repo)/releases/download/\(tag)/\($0)")
+        }
+    }
+
+    /// 镜像优先，直连垫后；去重保序。
+    private static func prioritizedDownloadURLs(_ directs: [URL]) -> [URL] {
+        var seen = Set<String>()
+        var result: [URL] = []
+        func append(_ url: URL) {
+            let key = url.absoluteString
+            guard seen.insert(key).inserted else { return }
+            result.append(url)
+        }
+        for direct in directs {
+            for mirror in downloadMirrors {
+                if let mirrored = URL(string: mirror + direct.absoluteString) {
+                    append(mirrored)
+                }
+            }
+        }
+        for direct in directs {
+            append(direct)
+        }
+        return result
     }
 
     private static func extractTag(from url: URL) -> String? {
         let parts = url.path.split(separator: "/").map(String.init)
-        // .../releases/tag/v1.0.4
         if let idx = parts.firstIndex(of: "tag"), idx + 1 < parts.count {
             return parts[idx + 1]
         }
         return nil
     }
 
-    private static func download(from url: URL, named name: String) async throws -> URL {
-        var request = URLRequest(url: url)
-        request.setValue(userAgent, forHTTPHeaderField: "User-Agent")
-        request.timeoutInterval = 120
-
-        let (tempURL, response) = try await URLSession.shared.download(for: request)
-        if let http = response as? HTTPURLResponse, !(200...299).contains(http.statusCode) {
-            throw UpdateError.http(http.statusCode, rateLimited: false)
+    private static func downloadWithProgress(
+        urls: [URL],
+        named name: String,
+        expectedSize: Int64?
+    ) async throws -> URL {
+        var lastError: Error = UpdateError.downloadFailed
+        for (index, candidate) in urls.enumerated() {
+            UpdateProgressModel.shared.statusText =
+                "正在下载…（线路 \(index + 1)/\(urls.count)）"
+            DebugLog.write("下载尝试 \(index + 1)/\(urls.count): \(candidate.absoluteString)")
+            do {
+                let file = try await DownloadSession.shared.download(from: candidate, named: name) { fraction in
+                    Task { @MainActor in
+                        UpdateProgressModel.shared.fractionCompleted = fraction
+                        let pct = Int(fraction * 100)
+                        UpdateProgressModel.shared.statusText = "正在下载… \(pct)%"
+                    }
+                }
+                if isValidPKG(at: file, expectedSize: expectedSize) {
+                    return file
+                }
+                DebugLog.write("下载文件校验失败：\(file.path) size=\(fileSize(file))")
+                try? FileManager.default.removeItem(at: file)
+                lastError = UpdateError.corruptPackage
+            } catch {
+                lastError = error
+                DebugLog.write("下载失败：\(error.localizedDescription)")
+            }
         }
+        throw lastError
+    }
 
-        let dir = AppPaths.updatesDirectory()
-        let dest = dir.appendingPathComponent(name)
-        if FileManager.default.fileExists(atPath: dest.path) {
-            try FileManager.default.removeItem(at: dest)
+    private static func isValidPKG(at url: URL, expectedSize: Int64?) -> Bool {
+        guard let attrs = try? FileManager.default.attributesOfItem(atPath: url.path),
+              let size = attrs[.size] as? Int64,
+              size > 1024 else { return false }
+        if let expectedSize, expectedSize > 0, size != expectedSize {
+            return false
         }
-        try FileManager.default.moveItem(at: tempURL, to: dest)
-        return dest
+        guard let handle = try? FileHandle(forReadingFrom: url),
+              let magic = try? handle.read(upToCount: 4),
+              magic == Data("xar!".utf8) else { return false }
+        return true
+    }
+
+    private static func fileSize(_ url: URL) -> Int64 {
+        ((try? FileManager.default.attributesOfItem(atPath: url.path)[.size] as? Int64) ?? 0)
     }
 
     // MARK: - UI
@@ -304,7 +354,8 @@ enum UpdateChecker {
         let alert = NSAlert()
         alert.messageText = "发现新版本 \(version)"
         let body = (notes?.trimmingCharacters(in: .whitespacesAndNewlines)).flatMap { $0.isEmpty ? nil : $0 }
-        alert.informativeText = body ?? "当前版本 \(currentVersion)。下载安装包后将打开系统安装器完成更新。"
+        alert.informativeText = body
+            ?? "当前版本 \(currentVersion)。将自动下载安装包并打开安装器，随后 ClipBar 会退出以便完成更新。"
         alert.alertStyle = .informational
         alert.addButton(withTitle: "立即更新")
         alert.addButton(withTitle: "稍后")
@@ -345,7 +396,6 @@ enum UpdateChecker {
         return s
     }
 
-    /// 比较语义化版本，lhs > rhs 返回正数。
     static func compareVersion(_ lhs: String, _ rhs: String) -> Int {
         let a = lhs.split(separator: ".").map { Int($0) ?? 0 }
         let b = rhs.split(separator: ".").map { Int($0) ?? 0 }
@@ -362,22 +412,122 @@ enum UpdateChecker {
         case http(Int, rateLimited: Bool)
         case invalidResponse
         case parseFailed
+        case downloadFailed
+        case corruptPackage
 
         var errorDescription: String? {
             switch self {
             case .http(let code, let rateLimited):
                 if rateLimited || code == 403 {
-                    return "GitHub 请求受限（HTTP \(code)）。请稍后再试，或打开 Releases 页面手动下载。"
+                    return "GitHub 请求受限（HTTP \(code)）。请稍后再试。"
                 }
                 if code == 404 {
-                    return "未找到 Release（HTTP 404）。请确认仓库已发布安装包。"
+                    return "未找到 Release（HTTP 404）。"
                 }
                 return "GitHub 返回 HTTP \(code)"
             case .invalidResponse:
                 return "无法解析 GitHub 响应，请检查网络后重试。"
             case .parseFailed:
-                return "无法识别最新版本号，请打开 Releases 页面查看。"
+                return "无法识别最新版本号，请稍后重试。"
+            case .downloadFailed:
+                return "安装包下载失败（网络不稳定）。请重试。"
+            case .corruptPackage:
+                return "下载的安装包不完整或已损坏，请重试。"
             }
+        }
+    }
+}
+
+// MARK: - 带进度的下载
+
+private final class DownloadSession: NSObject, URLSessionDownloadDelegate {
+    static let shared = DownloadSession()
+
+    private let lock = NSLock()
+    private var progressHandler: ((Double) -> Void)?
+    private var continuation: CheckedContinuation<URL, Error>?
+    private var destinationName: String = "update.pkg"
+    private lazy var session: URLSession = {
+        let config = URLSessionConfiguration.default
+        config.timeoutIntervalForRequest = 30
+        config.timeoutIntervalForResource = 300
+        config.waitsForConnectivity = true
+        return URLSession(configuration: config, delegate: self, delegateQueue: nil)
+    }()
+
+    func download(
+        from url: URL,
+        named name: String,
+        onProgress: @escaping (Double) -> Void
+    ) async throws -> URL {
+        try await withCheckedThrowingContinuation { continuation in
+            self.lock.lock()
+            self.continuation = continuation
+            self.progressHandler = onProgress
+            self.destinationName = name
+            self.lock.unlock()
+            var request = URLRequest(url: url)
+            let version = Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "0"
+            request.setValue("ClipBar/\(version)", forHTTPHeaderField: "User-Agent")
+            request.timeoutInterval = 300
+            session.downloadTask(with: request).resume()
+        }
+    }
+
+    func urlSession(
+        _ session: URLSession,
+        downloadTask: URLSessionDownloadTask,
+        didWriteData bytesWritten: Int64,
+        totalBytesWritten: Int64,
+        totalBytesExpectedToWrite: Int64
+    ) {
+        guard totalBytesExpectedToWrite > 0 else { return }
+        let fraction = Double(totalBytesWritten) / Double(totalBytesExpectedToWrite)
+        progressHandler?(min(max(fraction, 0), 1))
+    }
+
+    func urlSession(
+        _ session: URLSession,
+        downloadTask: URLSessionDownloadTask,
+        didFinishDownloadingTo location: URL
+    ) {
+        do {
+            if let http = downloadTask.response as? HTTPURLResponse,
+               !(200...299).contains(http.statusCode) {
+                throw NSError(
+                    domain: "UpdateChecker",
+                    code: http.statusCode,
+                    userInfo: [NSLocalizedDescriptionKey: "下载失败 HTTP \(http.statusCode)"]
+                )
+            }
+            let dir = AppPaths.updatesDirectory()
+            let dest = dir.appendingPathComponent(destinationName)
+            if FileManager.default.fileExists(atPath: dest.path) {
+                try FileManager.default.removeItem(at: dest)
+            }
+            try FileManager.default.moveItem(at: location, to: dest)
+            progressHandler?(1)
+            finish(.success(dest))
+        } catch {
+            finish(.failure(error))
+        }
+    }
+
+    func urlSession(_ session: URLSession, task: URLSessionTask, didCompleteWithError error: Error?) {
+        guard let error else { return }
+        finish(.failure(error))
+    }
+
+    private func finish(_ result: Result<URL, Error>) {
+        lock.lock()
+        let cont = continuation
+        continuation = nil
+        progressHandler = nil
+        lock.unlock()
+        guard let cont else { return }
+        switch result {
+        case .success(let url): cont.resume(returning: url)
+        case .failure(let error): cont.resume(throwing: error)
         }
     }
 }

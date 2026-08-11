@@ -123,6 +123,39 @@ public final class ClipboardStore {
         if !columns.contains("source_app_bundle_id") {
             execute("ALTER TABLE items ADD COLUMN source_app_bundle_id TEXT")
         }
+        rewriteLegacyMediaPaths()
+    }
+
+    /// 改名后 DB 里仍是旧绝对路径时，批量改写到 ClipBar，并尽量找回文件。
+    private func rewriteLegacyMediaPaths() {
+        guard let db else { return }
+        var stmt: OpaquePointer?
+        let sql = """
+            SELECT id, image_path, original_image_path, rtf_path FROM items
+            WHERE image_path LIKE '%ClipboardManager%'
+               OR original_image_path LIKE '%ClipboardManager%'
+               OR rtf_path LIKE '%ClipboardManager%'
+            """
+        guard sqlite3_prepare_v2(db, sql, -1, &stmt, nil) == SQLITE_OK else { return }
+        defer { sqlite3_finalize(stmt) }
+
+        var updates: [(Int64, String?, String?, String?)] = []
+        while sqlite3_step(stmt) == SQLITE_ROW {
+            let id = sqlite3_column_int64(stmt, 0)
+            let image = columnStringOrNil(stmt, 1).map(AppPaths.remapLegacySupportPath)
+            let original = columnStringOrNil(stmt, 2).map(AppPaths.remapLegacySupportPath)
+            let rtf = columnStringOrNil(stmt, 3).map(AppPaths.remapLegacySupportPath)
+            updates.append((id, image, original, rtf))
+        }
+        for (id, image, original, rtf) in updates {
+            execute(
+                "UPDATE items SET image_path = ?, original_image_path = ?, rtf_path = ? WHERE id = ?",
+                [image, original, rtf, id]
+            )
+        }
+        if !updates.isEmpty {
+            DebugLog.write("路径迁移：改写 \(updates.count) 条旧 ClipboardManager 媒体路径")
+        }
     }
 
     @discardableResult
@@ -211,9 +244,9 @@ public final class ClipboardStore {
                 id: id,
                 kind: ClipboardItem.Kind(rawValue: kindRaw) ?? .text,
                 text: text,
-                rtfPath: rtfPath,
-                imagePath: imagePath,
-                originalImagePath: originalImagePath,
+                rtfPath: AppPaths.resolveExistingPath(rtfPath) ?? rtfPath,
+                imagePath: AppPaths.resolveExistingPath(imagePath) ?? imagePath,
+                originalImagePath: AppPaths.resolveExistingPath(originalImagePath) ?? originalImagePath,
                 filePaths: filePaths,
                 hash: hash,
                 pinned: pinned,

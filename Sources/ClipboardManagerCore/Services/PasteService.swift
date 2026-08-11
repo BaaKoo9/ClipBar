@@ -24,15 +24,30 @@ public final class PasteService {
             return Hashing.sha256Hex(text)
 
         case .image:
-            guard let path = item.originalImagePath,
+            // 兼容改名后的旧路径；原图优先，缩略图兜底
+            guard let path = AppPaths.resolveExistingPath(item.originalImagePath)
+                    ?? AppPaths.resolveExistingPath(item.imagePath),
                   let data = try? Data(contentsOf: URL(fileURLWithPath: path)),
-                  let image = NSImage(data: data) else { return nil }
-            let png = image.pngData() ?? data
-            pasteboard.setData(png, forType: .png)
-            if let tiff = image.tiffRepresentation {
-                pasteboard.setData(tiff, forType: .tiff)
+                  !data.isEmpty else { return nil }
+
+            // 已是 PNG 则直接写回，避免二次编码失败导致「粘贴不上」
+            let isPNG = data.count >= 8 && data.starts(with: [0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A])
+            if isPNG {
+                pasteboard.setData(data, forType: .png)
             }
-            return Hashing.sha256Hex(png)
+            if let image = NSImage(data: data) {
+                if !isPNG, let png = image.pngData() {
+                    pasteboard.setData(png, forType: .png)
+                } else if !isPNG {
+                    pasteboard.setData(data, forType: .png)
+                }
+                if let tiff = image.tiffRepresentation {
+                    pasteboard.setData(tiff, forType: .tiff)
+                }
+            } else if !isPNG {
+                pasteboard.setData(data, forType: .png)
+            }
+            return Hashing.sha256Hex(data)
 
         case .file:
             let urls = item.filePaths.map { URL(fileURLWithPath: $0) } as [NSURL]

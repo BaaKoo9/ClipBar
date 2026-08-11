@@ -1,68 +1,109 @@
-# ClipBar
+<p align="center">
+  <img src="docs/images/icon-256.png" width="96" alt="ClipBar icon" />
+</p>
 
-[中文文档](README_CN.md)
+<h1 align="center">ClipBar</h1>
 
-A **local-first, high-performance, minimal** macOS clipboard manager. Keyboard-first design: summon the panel, pick with arrow keys, paste with Enter — no mouse required.
+<p align="center">
+  <strong>Local-first clipboard manager for macOS</strong><br />
+  Keyboard-first · Fast · Minimal · Private by default
+</p>
 
-## System Requirements
+<p align="center">
+  <a href="README_CN.md">中文文档</a>
+  ·
+  <a href="https://github.com/BaaKoo9/ClipBar/releases">Download</a>
+  ·
+  <a href="https://github.com/BaaKoo9/ClipBar/releases/latest">Latest Release</a>
+</p>
 
-- **macOS 14 Sonoma** or later (including macOS 15 Sequoia)
-- **Apple Silicon** and **Intel** Macs
-- First launch requires **Accessibility** and **Input Monitoring** permissions (global hotkeys & auto-paste)
+---
 
-## Features
+Summon with a hotkey, pick with arrow keys, paste with Enter — without leaving the keyboard.
 
-- Menu bar resident, global hotkeys to summon the panel (default `⌥⌘V`, customizable by recording)
-- Auto-captures: text, links, images, files, and rich text (RTF preserved)
-- **Snapshot bar**: horizontal cards with type filters (All / Text / Link / Image / File) and custom labels
-- Instant search with keyword highlighting (supports `#tag`)
-- Pin/favorite items (protected from history cleanup); optional bump-on-paste
-- Deduplication: identical content refreshes timestamp instead of stacking
-- **Sequential paste**: enqueue with `⌥⌘E` (simulates ⌘C + auto-queue), dequeue with `⌥⌘D`, with a persistent side queue list
-- Labels: create / drag-reorder / context-menu edit-delete in the panel; manage in Settings
-- Settings: launch at login, history limit & retention, auto-paste, ignore apps, silent update checks, clear history
-- **Privacy: zero network permissions, all data stays local** (SQLite + cached images/RTF)
-- About window with version info and project link
+<p align="center">
+  <img src="docs/images/panel.jpg" width="860" alt="ClipBar snapshot bar" />
+</p>
 
-## Installation
+## Highlights
 
-Download the latest **`.pkg` installer** from [Releases](https://github.com/BaaKoo9/ClipBar/releases), then double-click to install into Applications.
+- **Snapshot bar** — horizontal cards with type filters and custom labels
+- **Sequential paste** — enqueue copies, dequeue in order with a side queue
+- **Instant search** — keyword highlight; `#tag` jumps to a label
+- **Local-first privacy** — clipboard history stays on your Mac (SQLite + media cache)
+- **Zero third-party deps** — Swift + SwiftUI + AppKit only
 
-### First launch (not notarized)
+<p align="center">
+  <img src="docs/images/queue.jpg" width="520" alt="ClipBar paste queue" />
+</p>
 
-This build is self-signed and **not Apple-notarized**. macOS may block the first open after download. Use either:
+## Requirements
 
-1. **Recommended**: in Finder, **Control-click** (or right-click) `ClipBar` → **Open** → confirm **Open** again
-2. Or go to **System Settings → Privacy & Security**, scroll to the security prompt, and click **Open Anyway** (wording may vary by macOS version)
+| | |
+|---|---|
+| macOS | **14 Sonoma** or later (incl. 15 Sequoia) |
+| Chip | Apple Silicon & Intel |
+| Permissions | **Accessibility** + **Input Monitoring** (hotkeys & auto-paste) |
 
-After that, grant in **System Settings → Privacy & Security**:
+## Install
 
-- **Accessibility**
-- **Input Monitoring**
+Grab the latest build from [Releases](https://github.com/BaaKoo9/ClipBar/releases):
 
-Both are required for global hotkeys and auto-paste.
+| Asset | Use when |
+|---|---|
+| **`ClipBar-x.y.z.pkg`** | Double-click → installs into Applications (recommended) |
+| **`ClipBar-x.y.z.dmg`** | Open → drag `ClipBar.app` onto **Applications** |
 
-## Usage
+### First open (not notarized)
 
-| Action | Shortcut |
+Builds are self-signed and **not Apple-notarized**. If macOS blocks the first launch:
+
+1. **Recommended**: Finder → **Control-click** ClipBar → **Open** → confirm **Open**
+2. Or **System Settings → Privacy & Security** → **Open Anyway**
+
+Then enable for ClipBar:
+
+- Accessibility  
+- Input Monitoring  
+
+## Quick start
+
+| Action | Default shortcut |
 |---|---|
 | Summon / dismiss panel | `⌥⌘V` |
-| Enqueue copy (copy selection + queue) | `⌥⌘E` |
+| Enqueue (copy selection + queue) | `⌥⌘E` |
 | Dequeue paste | `⌥⌘D` |
-| In panel: select | `←` `→` |
-| In panel: paste selected | `Enter` or single click |
-| In panel: enqueue | `⌘+Click` or hover `⊕` button |
+| Select in panel | `←` `→` |
+| Paste selection | `Enter` or click |
+| Enqueue from panel | `⌘`-click or hover `⊕` |
 
 All shortcuts are customizable in Settings.
 
-## Build
+<p align="center">
+  <img src="docs/images/settings.jpg" width="720" alt="ClipBar settings" />
+</p>
 
-Requires macOS 14+ and only Xcode CommandLineTools (no full Xcode needed):
+## Features
+
+- Menu-bar resident; records text, links, images, files, and RTF
+- Pin / favorite (excluded from capacity cleanup); optional bump-on-paste
+- Dedup: identical content refreshes timestamp instead of stacking
+- Labels: create, drag-reorder, edit/delete in panel; manage in Settings
+- History limit + optional day-based retention (1–90 days, unpinned only)
+- Ignore apps; launch at login; in-app update check with download progress
+- About window with version and project link
+
+> Clipboard **content** never leaves your machine. The optional updater only talks to GitHub Releases (with download mirrors) when you check for updates.
+
+## Build from source
+
+macOS 14+ with Xcode Command Line Tools (full Xcode not required):
 
 ```bash
-./scripts/build-app.sh          # builds dist/ClipBar.app
-./scripts/make-pkg.sh           # builds dist/ClipBar-x.y.z.pkg
-./scripts/run-tests.sh          # runs core unit tests
+./scripts/build-app.sh          # dist/ClipBar.app
+./scripts/make-pkg.sh           # dist/ClipBar-x.y.z.pkg
+./scripts/make-dmg.sh           # dist/ClipBar-x.y.z.dmg
+./scripts/run-tests.sh          # core unit tests
 ```
 
 ## Tests
@@ -71,25 +112,24 @@ Requires macOS 14+ and only Xcode CommandLineTools (no full Xcode needed):
 swift run CoreTests
 ```
 
-Covers: insert/fetch, dedup, search, pin protection, clear, text/image/file/RTF paste-back, hotkey registration, legacy DB migration, 10k-item performance (fetch <10ms, search <5ms).
+Covers insert/fetch, dedup, search, pin protection, clear, paste-back for text/image/file/RTF, hotkey registration, legacy DB migration, and a 10k-item perf check (fetch &lt;10ms, search &lt;5ms).
 
-## Tech Stack
+## Stack
 
-- Swift + SwiftUI + AppKit, zero third-party dependencies
-- SQLite (system library): serialized writes, lazy capacity cleanup
-- Carbon global hotkeys + CGEventTap (Accessibility / Input Monitoring)
-- PNG canonical storage + JPEG thumbnails; RTF preserved for rich text
+- Swift + SwiftUI + AppKit — no SPM third-party packages
+- SQLite (system): serialized writes, retention + history-limit cleanup
+- Carbon global hotkeys + CGEventTap
+- PNG storage + JPEG thumbnails; RTF preserved for rich text
 
 ## Roadmap
 
-- [x] Clipboard monitoring & local storage
+- [x] Clipboard monitor & local store
 - [x] Snapshot bar, search, paste-back
-- [x] Customizable global hotkeys (summon / enqueue / dequeue)
+- [x] Custom hotkeys (summon / enqueue / dequeue)
 - [x] Sequential paste, pin, ignore apps, launch at login
-- [x] App icon, pkg installer, about window
-- [x] Queue side panel with screen following
-- [x] Custom labels, silent update checks
-- [ ] Cloud sync (iCloud private database), more type detection (colors, code blocks)
+- [x] App icon, pkg + dmg, about window
+- [x] Queue side panel; custom labels; update checks
+- [ ] iCloud private sync; richer type detection (colors, code)
 
 ## License
 
