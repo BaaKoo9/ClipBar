@@ -1,0 +1,45 @@
+Sources/ClipboardManager/UI/BrandTheme.swift
+  s_d8048c9cf9bfc5::t_bc0d6e80b27760 15-16,18-20,22-24,26-28,32-34
+  s_d8048c9cf9bfc5::t_c83ee40d470150 8-9
+  s_d8048c9cf9bfc5::t_a1c61e2a736a9b 1-5,10-14,17,21,25,29-31,35-40
+  s_d8048c9cf9bfc5::t_24ab0f82b2f15a 6-7
+Sources/ClipboardManager/AppDelegate.swift
+  s_d8048c9cf9bfc5::t_ee89e6d68720bc 398-402,405-410,420-422,433
+Sources/ClipboardManager/UI/Panels/SnapshotBarView.swift
+  s_d8048c9cf9bfc5::t_4fd937a27d1040 110
+  s_d8048c9cf9bfc5::t_45f269fbac9e95 776-777
+  s_d8048c9cf9bfc5::t_7b806e2b23d4d4 684,690,711-712,722-724
+  s_d8048c9cf9bfc5::t_4c4c30aaf52ec9 530-534,536,538-539,544-566,571-592,598,634,636,638,646-648,683,686,688-689,693-696,698,700,703-707,736,742,760
+  s_d8048c9cf9bfc5::t_6a6ae5641b9f4e 637,639,649
+  s_d8048c9cf9bfc5::t_67f875d0a3459f 23,31-32,45,55,61,63,70-87,89-90,94-98,102-106,114,118,122,131-132,183,209-210,212-214,216-238,240-272,274-295
+  s_d8048c9cf9bfc5::t_9c82e1b04fe2f6 685
+  s_d8048c9cf9bfc5::t_0a97ad9a001b95 849,851-852
+  s_d8048c9cf9bfc5::t_75b584951f1611 386,388
+  s_d8048c9cf9bfc5::t_f4ab3b6961e3c3 513
+  s_d8048c9cf9bfc5::t_765cbee5473f90 708-710
+Sources/ClipboardManager/UI/Panels/ToastWindowController.swift
+  s_d8048c9cf9bfc5::t_1cbb61115ad372 192,211-219,222,224,235,239-264,270,279,281-292,294,301-302,304-307,325-333,336,338
+  s_d8048c9cf9bfc5::t_88af67d98d6d27 82,84,90-94
+Sources/ClipboardManager/UI/SettingsView.swift
+  s_d8048c9cf9bfc5::t_65762d92814d56 101,105
+  s_d8048c9cf9bfc5::t_6e4d062a0c4802 176,182
+  s_d8048c9cf9bfc5::t_805fb0d111d04e 381,387-391
+  s_d8048c9cf9bfc5::t_aebd92c7e06d9d 380,382-383,385-386,392,394
+  s_d8048c9cf9bfc5::t_bd6e35465c1600 125
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.21",
+  "base_commit_sha": "d733982df938a98077c40aa20dae76006737742d",
+  "prompts": {},
+  "sessions": {
+    "s_d8048c9cf9bfc5": {
+      "agent_id": {
+        "tool": "cursor",
+        "id": "aecfab03-5415-43b3-9ac9-22547c4c79c5",
+        "model": "grok-4.5"
+      },
+      "human_author": "BaaKoo <hu1529508986@gmail.com>"
+    }
+  }
+}
