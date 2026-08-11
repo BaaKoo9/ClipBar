@@ -279,17 +279,9 @@ private struct QueueListView: View {
                     VStack(alignment: .leading, spacing: 6) {
                         ForEach(Array(items.enumerated()), id: \.offset) { index, item in
                             HStack(alignment: .center, spacing: 8) {
-                                if index == 0 {
-                                    Capsule()
-                                        .fill(BrandTheme.accent)
-                                        .frame(width: 2.5, height: 18)
-                                } else {
-                                    Color.clear.frame(width: 2.5, height: 18)
-                                }
-
                                 Text("\(index + 1)")
                                     .font(.system(size: 14, weight: .semibold).monospacedDigit())
-                                    .foregroundStyle(BrandTheme.accent)
+                                    .foregroundStyle(.primary.opacity(0.9))
                                     .frame(width: 18, alignment: .leading)
 
                                 Text(truncated(item.previewLine))
@@ -303,7 +295,7 @@ private struct QueueListView: View {
                             .frame(maxWidth: .infinity, alignment: .leading)
                             .background(
                                 RoundedRectangle(cornerRadius: 10, style: .continuous)
-                                    .fill(Color.primary.opacity(index == 0 ? 0.12 : 0.08))
+                                    .fill(Color.primary.opacity(0.08))
                             )
                             .id("queue-row-\(index)")
                         }
