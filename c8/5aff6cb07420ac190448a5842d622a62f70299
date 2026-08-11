@@ -1,0 +1,60 @@
+Sources/ClipboardManager/UI/SettingsView.swift
+  s_d8048c9cf9bfc5::t_a38565b40f876a 49-51,54,67
+  s_d8048c9cf9bfc5::t_13dc485845d668 268-270,286-288,293-295
+  s_d8048c9cf9bfc5::t_4f807e29ee3813 306,309
+  s_d8048c9cf9bfc5::t_e01a1d264b2426 322
+  s_d8048c9cf9bfc5::t_8459fe290e793a 398,404
+  s_d8048c9cf9bfc5::t_362f8ea77ba487 406,409-413,424-430,676
+  s_d8048c9cf9bfc5::t_f67806cc15a3a0 299,302-303,305,307-308,310,312,315-316,318-321,365,373,375,382-383,387,390-397,399-403,405,407-408,414-423
+  s_d8048c9cf9bfc5::t_7bcf1d87222644 323,734-738
+  s_d8048c9cf9bfc5::t_615c70ac45b8dd 641,659-675
+  s_d8048c9cf9bfc5::t_82656b291994b7 52-53
+  s_d8048c9cf9bfc5::t_c722090ae444bd 304,311,317,325
+  s_d8048c9cf9bfc5::t_71a49d3663589e 717-733,739-745,756,763,769,778
+  s_d8048c9cf9bfc5::t_8879646fd31007 331-333,341-343,362-364,366-372,374,376-381,384-386,388-389
+README_CN.md
+  s_d8048c9cf9bfc5::t_a83c6a61ed0ca7 1-3,5,7-34,36-38,40,42-46,50,52-55,57,59,61-62,64,66-67,69,71,73-74,77-78,82-98,100,105-106,115,119-122,128,130-132
+Sources/ClipboardManager/Services/UpdateProgressModel.swift
+  s_d8048c9cf9bfc5::t_f2690ce1a639bf 1-33
+Sources/ClipboardManagerCore/Services/AppSettings.swift
+  s_d8048c9cf9bfc5::t_1e5f5b29aba421 44,49,51
+Sources/ClipboardManagerCore/Services/PasteService.swift
+  s_d8048c9cf9bfc5::t_6bdfb43d928262 27-29,31-48,50
+Resources/Info.plist
+  s_d8048c9cf9bfc5::t_247b71fb23fbb8 22
+Sources/ClipboardManagerCore/Services/ClipboardStore.swift
+  s_d8048c9cf9bfc5::t_db9d16cd49bc2a 247-249
+  s_d8048c9cf9bfc5::t_aad805722a7ae2 126-158
+README.md
+  s_d8048c9cf9bfc5::t_196b116065df99 1-3,5,7-10,12-18,20,22-26,28,30-34,36-38,40-46,48,50-55,57,59,61-62,64,66-67,69-71,74,76-78,82-98,100,103-106,115,117,119-122,126,128,130-132
+  s_d8048c9cf9bfc5::t_06091a848af195 49
+Sources/ClipboardManager/Services/UpdateChecker.swift
+  s_d8048c9cf9bfc5::t_c6d1a5a9e78e51 61,63,66-68,77,87,106,120,130,184-187,260-261,267-269,287,302,304,306,312,314-318,322,326-327,329,331,357,440-445,447-452,455-463,465-467,469,473-509,511,513-517,524-525
+  s_d8048c9cf9bfc5::t_ff4ce0ac583fa9 5,14-19,24-26,44,46,50,52,73,78-81,105,109,124,128,131-132,139-161,199,202,210-211,216-218,243-244,246,248,254-256,272-286,288-291,303,305,307-311,313,319-321,323-325,328,332,334-339,341-348,358,415-416,422,425,431-435,453-454,472
+  s_d8048c9cf9bfc5::t_4f64a3d9aa5348 162,270,446,464,468,470-471,510,512,518-523,526-532
+  s_d8048c9cf9bfc5::t_707ac6905344bb 163
+  s_d8048c9cf9bfc5::t_ebeae6e4068630 271
+  s_d8048c9cf9bfc5::t_a3ed1a5f46aa04 533
+Sources/ClipboardManagerCore/Services/AppPaths.swift
+  s_d8048c9cf9bfc5::t_b054d12efc2787 12,38-99
+  s_d8048c9cf9bfc5::t_5f7ea605ff82f6 100
+Sources/ClipboardManager/UI/Panels/SnapshotBarView.swift
+  s_d8048c9cf9bfc5::t_a90e69ebc0c850 842,870-879,884-887,890,892-893
+  s_d8048c9cf9bfc5::t_c61fa1d307b453 693
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.21",
+  "base_commit_sha": "c85aff6cb07420ac190448a5842d622a62f70299",
+  "prompts": {},
+  "sessions": {
+    "s_d8048c9cf9bfc5": {
+      "agent_id": {
+        "tool": "cursor",
+        "id": "aecfab03-5415-43b3-9ac9-22547c4c79c5",
+        "model": "grok-4.5"
+      },
+      "human_author": "BaaKoo <hu1529508986@gmail.com>"
+    }
+  }
+}
