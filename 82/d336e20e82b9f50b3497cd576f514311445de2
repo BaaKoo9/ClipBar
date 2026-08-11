@@ -1,0 +1,19 @@
+Resources/Info.plist
+  s_3442025dcd26f8::t_fe30fe26fd0a9d 7-8,13-14,22
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.21",
+  "base_commit_sha": "82d336e20e82b9f50b3497cd576f514311445de2",
+  "prompts": {},
+  "sessions": {
+    "s_3442025dcd26f8": {
+      "agent_id": {
+        "tool": "cursor",
+        "id": "5b4e90c1-60a0-4e4e-822b-04e182a67c87",
+        "model": "unknown"
+      },
+      "human_author": "BaaKoo <hu1529508986@gmail.com>"
+    }
+  }
+}
