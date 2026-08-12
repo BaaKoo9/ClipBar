@@ -22,7 +22,7 @@
 快捷键呼出 → 方向键选择 → 回车粘贴，全程不必碰鼠标。
 
 <p align="center">
-  <img src="docs/images/panel.jpg?v=20260812" width="860" alt="ClipBar 快照条" />
+  <img src="docs/images/panel.jpg?v=20260812b" width="860" alt="ClipBar 快照条" />
 </p>
 
 ## 亮点
@@ -34,7 +34,7 @@
 - **零第三方依赖** — 纯 Swift + SwiftUI + AppKit
 
 <p align="center">
-  <img src="docs/images/queue.jpg?v=20260812" width="720" alt="ClipBar 粘贴队列" />
+  <img src="docs/images/queue.jpg?v=20260812b" width="720" alt="ClipBar 粘贴队列" />
 </p>
 
 ## 系统要求
@@ -80,7 +80,7 @@
 所有快捷键可在设置中自定义。
 
 <p align="center">
-  <img src="docs/images/settings.jpg?v=20260812" width="720" alt="ClipBar 设置" />
+  <img src="docs/images/settings.jpg?v=20260812b" width="720" alt="ClipBar 设置" />
 </p>
 
 ## 功能一览
