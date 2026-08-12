@@ -22,7 +22,7 @@
 Summon with a hotkey, pick with arrow keys, paste with Enter — without leaving the keyboard.
 
 <p align="center">
-  <img src="docs/images/panel.jpg?v=20260812b" width="860" alt="ClipBar snapshot bar" />
+  <img src="docs/images/panel.png?v=20260812orig" width="860" alt="ClipBar snapshot bar" />
 </p>
 
 ## Highlights
@@ -34,7 +34,7 @@ Summon with a hotkey, pick with arrow keys, paste with Enter — without leaving
 - **Zero third-party deps** — Swift + SwiftUI + AppKit only
 
 <p align="center">
-  <img src="docs/images/queue.jpg?v=20260812b" width="720" alt="ClipBar paste queue" />
+  <img src="docs/images/queue.png?v=20260812orig" width="720" alt="ClipBar paste queue" />
 </p>
 
 ## Requirements
@@ -80,7 +80,7 @@ Then enable for ClipBar:
 All shortcuts are customizable in Settings.
 
 <p align="center">
-  <img src="docs/images/settings.jpg?v=20260812b" width="720" alt="ClipBar settings" />
+  <img src="docs/images/settings.png?v=20260812orig" width="720" alt="ClipBar settings" />
 </p>
 
 ## Features
