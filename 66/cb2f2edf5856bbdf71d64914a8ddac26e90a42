@@ -1,0 +1,21 @@
+README.md
+  s_d8048c9cf9bfc5::t_aa7e637ad18caf 25,37,83
+README_CN.md
+  s_d8048c9cf9bfc5::t_07f2a14ddd0b2d 25,37,83
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.21",
+  "base_commit_sha": "66cb2f2edf5856bbdf71d64914a8ddac26e90a42",
+  "prompts": {},
+  "sessions": {
+    "s_d8048c9cf9bfc5": {
+      "agent_id": {
+        "tool": "cursor",
+        "id": "aecfab03-5415-43b3-9ac9-22547c4c79c5",
+        "model": "grok-4.5"
+      },
+      "human_author": "BaaKoo <hu1529508986@gmail.com>"
+    }
+  }
+}
