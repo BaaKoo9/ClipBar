@@ -510,11 +510,8 @@ struct SnapshotBarView: View {
             Spacer()
             if viewModel.pasteQueue.count > 0 {
                 Text("队列 \(viewModel.pasteQueue.count) 项 · 侧边窗可查看")
-                    .foregroundStyle(BrandTheme.accent.opacity(0.9))
-                    .fontWeight(.medium)
             } else {
                 Text("\(viewModel.enqueueHotKeyLabel) 入队 · \(viewModel.dequeueHotKeyLabel) 出队")
-                    .foregroundStyle(.secondary)
             }
         }
         .font(.system(size: 10))
