@@ -33,6 +33,10 @@
 - **本地优先** — 历史仅存本机（SQLite + 图片/RTF 缓存）
 - **零第三方依赖** — 纯 Swift + SwiftUI + AppKit
 
+<p align="center">
+  <img src="docs/images/queue.jpg" width="720" alt="ClipBar 粘贴队列" />
+</p>
+
 ## 系统要求
 
 | | |

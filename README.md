@@ -33,6 +33,10 @@ Summon with a hotkey, pick with arrow keys, paste with Enter — without leaving
 - **Local-first privacy** — clipboard history stays on your Mac (SQLite + media cache)
 - **Zero third-party deps** — Swift + SwiftUI + AppKit only
 
+<p align="center">
+  <img src="docs/images/queue.jpg" width="720" alt="ClipBar paste queue" />
+</p>
+
 ## Requirements
 
 | | |
