@@ -1,0 +1,25 @@
+README.md
+  s_d8048c9cf9bfc5::t_e2f0203f0eacf5 37
+  s_d8048c9cf9bfc5::t_7521d6d2b6076a 25
+  s_d8048c9cf9bfc5::t_4e65f9dc2cbbea 83
+README_CN.md
+  s_d8048c9cf9bfc5::t_fa881b14a84c5c 83
+  s_d8048c9cf9bfc5::t_8fcf4a2f1d9a77 37
+  s_d8048c9cf9bfc5::t_9879d5f8c4b8e4 25
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.21",
+  "base_commit_sha": "ce4d738eb98a17d7f853c8d46365f77fffd4641b",
+  "prompts": {},
+  "sessions": {
+    "s_d8048c9cf9bfc5": {
+      "agent_id": {
+        "tool": "cursor",
+        "id": "aecfab03-5415-43b3-9ac9-22547c4c79c5",
+        "model": "grok-4.5"
+      },
+      "human_author": "BaaKoo <hu1529508986@gmail.com>"
+    }
+  }
+}
