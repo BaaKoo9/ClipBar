@@ -2,7 +2,7 @@ import AppKit
 import ClipboardManagerCore
 import Foundation
 
-/// 检查 GitHub Release，优先镜像下载 pkg，校验后打开安装器并退出。
+/// 检查 GitHub Release，优先镜像下载 pkg，校验后打开系统安装器。
 @MainActor
 enum UpdateChecker {
     private static let owner = "BaaKoo9"
@@ -10,6 +10,7 @@ enum UpdateChecker {
     private static let latestPageURL = URL(string: "https://github.com/\(owner)/\(repo)/releases/latest")!
     private static let apiURL = URL(string: "https://api.github.com/repos/\(owner)/\(repo)/releases/latest")!
     private static let userAgent = "ClipBar/\(currentVersion) (+https://github.com/\(owner)/\(repo))"
+    private static var isOperationInFlight = false
 
     /// 国内直连 github.com 常超时；镜像实测可用（ghfast ~4s 下完 2.3MB）。
     private static let downloadMirrors = [
@@ -23,6 +24,7 @@ enum UpdateChecker {
         let body: String?
         let pkgName: String
         let expectedSize: Int64?
+        let expectedSHA256: String?
         let downloadURLs: [URL]
     }
 
@@ -61,6 +63,11 @@ enum UpdateChecker {
     /// `interactive == false` 时静默写入设置；`true` 时走进度条下载并自动打开安装器。
     static func checkForUpdates(interactive: Bool = true) {
         let progress = UpdateProgressModel.shared
+        guard !isOperationInFlight else {
+            DebugLog.write("检查更新：已有任务进行中，忽略重复请求 interactive=\(interactive)")
+            return
+        }
+        isOperationInFlight = true
         DebugLog.write("检查更新：当前版本 \(currentVersion) interactive=\(interactive)")
         if interactive {
             progress.phase = .checking
@@ -69,6 +76,7 @@ enum UpdateChecker {
         }
 
         Task {
+            defer { isOperationInFlight = false }
             do {
                 let release = try await fetchLatestRelease(preferAPI: true)
                 let remote = normalizeVersion(release.tagName)
@@ -99,6 +107,19 @@ enum UpdateChecker {
 
                 guard interactive else {
                     DebugLog.write("检查更新：静默发现 \(remote)")
+                    return
+                }
+
+                guard release.expectedSHA256 != nil else {
+                    let message = "该版本缺少 SHA-256 校验文件。为避免安装来源不明的包，请前往 Releases 手动下载。"
+                    progress.phase = .failed(message)
+                    progress.statusText = "自动更新校验不可用"
+                    presentAlert(
+                        title: "无法安全自动更新",
+                        message: message,
+                        style: .warning,
+                        openURL: URL(string: release.htmlURL)
+                    )
                     return
                 }
 
@@ -145,20 +166,21 @@ enum UpdateChecker {
         let pkgURL = try await downloadWithProgress(
             urls: release.downloadURLs,
             named: release.pkgName,
-            expectedSize: release.expectedSize
+            expectedSize: release.expectedSize,
+            expectedSHA256: release.expectedSHA256
         )
         DebugLog.write("检查更新：已下载 \(pkgURL.path) (\(fileSize(pkgURL)) bytes)")
 
         progress.phase = .installing
         progress.fractionCompleted = 1
-        progress.statusText = "准备安装并重启…"
+        progress.statusText = "正在打开系统安装器…"
 
-        // 打开系统安装器；退出本进程以便覆盖 /Applications/ClipBar.app
-        // postinstall 会在安装结束后自动拉起新版本
-        NSWorkspace.shared.open(pkgURL)
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.8) {
-            NSApp.terminate(nil)
+        // 用户真正开始安装时 preinstall 会退出本进程；仅打开安装器时保持运行，
+        // 这样用户取消安装后 ClipBar 不会无故消失。
+        guard NSWorkspace.shared.open(pkgURL) else {
+            throw UpdateError.openInstallerFailed
         }
+        progress.reset()
     }
 
     static func schedulePeriodicChecks() {
@@ -215,6 +237,7 @@ enum UpdateChecker {
             body: nil,
             pkgName: pkgName,
             expectedSize: nil,
+            expectedSHA256: nil,
             downloadURLs: prioritizedDownloadURLs(direct)
         )
     }
@@ -241,6 +264,14 @@ enum UpdateChecker {
         }) ?? release.assets.first(where: { $0.name.hasSuffix(".pkg") })
 
         let pkgName = asset?.name ?? "ClipBar-\(version).pkg"
+        let checksumAsset = release.assets.first(where: { $0.name == "\(pkgName).sha256" })
+        let expectedSHA256: String?
+        if let checksumAsset,
+           let checksumURL = URL(string: checksumAsset.browserDownloadURL) {
+            expectedSHA256 = try? await fetchSHA256(from: checksumURL)
+        } else {
+            expectedSHA256 = nil
+        }
         var directs: [URL] = []
         if let asset, let url = URL(string: asset.browserDownloadURL) {
             directs.append(url)
@@ -253,8 +284,26 @@ enum UpdateChecker {
             body: release.body,
             pkgName: pkgName,
             expectedSize: asset?.size,
+            expectedSHA256: expectedSHA256,
             downloadURLs: prioritizedDownloadURLs(directs)
         )
+    }
+
+    /// 校验文件始终从 GitHub Release 直连获取；镜像仅用于下载体积较大的 pkg。
+    private static func fetchSHA256(from url: URL) async throws -> String {
+        var request = URLRequest(url: url)
+        request.setValue(userAgent, forHTTPHeaderField: "User-Agent")
+        request.timeoutInterval = 20
+        let config = URLSessionConfiguration.ephemeral
+        config.timeoutIntervalForRequest = 20
+        let session = URLSession(configuration: config)
+        let (data, response) = try await session.data(for: request)
+        guard let http = response as? HTTPURLResponse,
+              (200...299).contains(http.statusCode),
+              let digest = UpdatePackageVerifier.parseSHA256(from: data) else {
+            throw UpdateError.invalidChecksum
+        }
+        return digest
     }
 
     private static func pkgCandidateURLs(version: String, tag: String) -> [URL] {
@@ -302,8 +351,10 @@ enum UpdateChecker {
     private static func downloadWithProgress(
         urls: [URL],
         named name: String,
-        expectedSize: Int64?
+        expectedSize: Int64?,
+        expectedSHA256: String?
     ) async throws -> URL {
+        guard let expectedSHA256 else { throw UpdateError.missingChecksum }
         var lastError: Error = UpdateError.downloadFailed
         for (index, candidate) in urls.enumerated() {
             UpdateProgressModel.shared.statusText =
@@ -317,18 +368,31 @@ enum UpdateChecker {
                         UpdateProgressModel.shared.statusText = "正在下载… \(pct)%"
                     }
                 }
-                if isValidPKG(at: file, expectedSize: expectedSize) {
+                let hasValidContainer = isValidPKG(at: file, expectedSize: expectedSize)
+                let actualSHA256 = hasValidContainer ? try await sha256Hex(of: file) : nil
+                if hasValidContainer, actualSHA256 == expectedSHA256 {
                     return file
                 }
-                DebugLog.write("下载文件校验失败：\(file.path) size=\(fileSize(file))")
+                DebugLog.write(
+                    "下载文件校验失败：\(file.path) size=\(fileSize(file)) " +
+                    "sha256=\(actualSHA256 ?? "invalid") expected=\(expectedSHA256)"
+                )
                 try? FileManager.default.removeItem(at: file)
-                lastError = UpdateError.corruptPackage
+                lastError = hasValidContainer ? UpdateError.checksumMismatch : UpdateError.corruptPackage
             } catch {
                 lastError = error
                 DebugLog.write("下载失败：\(error.localizedDescription)")
+                let cached = AppPaths.updatesDirectory().appendingPathComponent(name)
+                try? FileManager.default.removeItem(at: cached)
             }
         }
         throw lastError
+    }
+
+    private static func sha256Hex(of url: URL) async throws -> String {
+        try await Task.detached(priority: .utility) {
+            try UpdatePackageVerifier.sha256Hex(ofFile: url)
+        }.value
     }
 
     private static func isValidPKG(at url: URL, expectedSize: Int64?) -> Bool {
@@ -355,7 +419,7 @@ enum UpdateChecker {
         alert.messageText = "发现新版本 \(version)"
         let body = (notes?.trimmingCharacters(in: .whitespacesAndNewlines)).flatMap { $0.isEmpty ? nil : $0 }
         alert.informativeText = body
-            ?? "当前版本 \(currentVersion)。将自动下载安装包并打开安装器，随后 ClipBar 会退出以便完成更新。"
+            ?? "当前版本 \(currentVersion)。将校验并打开系统安装器；真正开始安装时 ClipBar 会自动退出，完成后重新打开。"
         alert.alertStyle = .informational
         alert.addButton(withTitle: "立即更新")
         alert.addButton(withTitle: "稍后")
@@ -414,6 +478,10 @@ enum UpdateChecker {
         case parseFailed
         case downloadFailed
         case corruptPackage
+        case missingChecksum
+        case invalidChecksum
+        case checksumMismatch
+        case openInstallerFailed
 
         var errorDescription: String? {
             switch self {
@@ -433,6 +501,14 @@ enum UpdateChecker {
                 return "安装包下载失败（网络不稳定）。请重试。"
             case .corruptPackage:
                 return "下载的安装包不完整或已损坏，请重试。"
+            case .missingChecksum:
+                return "该版本缺少 SHA-256 校验文件，已停止自动安装。"
+            case .invalidChecksum:
+                return "无法解析该版本的 SHA-256 校验文件。"
+            case .checksumMismatch:
+                return "安装包 SHA-256 校验不一致，已删除下载文件并停止安装。"
+            case .openInstallerFailed:
+                return "无法打开系统安装器，请前往 Releases 手动下载。"
             }
         }
     }

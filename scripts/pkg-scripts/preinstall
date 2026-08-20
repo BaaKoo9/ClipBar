@@ -5,11 +5,11 @@ set -u
 osascript -e 'quit app "ClipBar"' >/dev/null 2>&1 || true
 osascript -e 'quit app "Clipboard Manager"' >/dev/null 2>&1 || true
 sleep 1
-pkill -f "ClipBar.app/Contents/MacOS/ClipBar" >/dev/null 2>&1 || true
-pkill -f "Clipboard Manager.app/Contents/MacOS/ClipboardManager" >/dev/null 2>&1 || true
-pkill -f "Clipboard Manager.app/Contents/MacOS/ClipBar" >/dev/null 2>&1 || true
+# 只结束已知安装路径中的可执行文件，避免模糊匹配误伤同名开发进程。
+pkill -f '^/Applications/ClipBar.app/Contents/MacOS/ClipBar$' >/dev/null 2>&1 || true
+pkill -f '^/Applications/Clipboard Manager.app/Contents/MacOS/(ClipboardManager|ClipBar)$' >/dev/null 2>&1 || true
 
-# 清理旧显示名安装副本，避免两套并存
-rm -rf "/Applications/Clipboard Manager.app" >/dev/null 2>&1 || true
+# 不自动删除旧显示名 App；安装器只负责覆盖 /Applications/ClipBar.app。
+# 若用户仍保留非常旧的副本，应由用户确认后手动移除。
 
 exit 0

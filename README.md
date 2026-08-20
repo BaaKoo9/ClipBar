@@ -66,6 +66,25 @@ Then enable for ClipBar:
 - Accessibility  
 - Input Monitoring  
 
+### Re-authorize after replacing the signing certificate
+
+Normal upgrades signed with the same identity keep these permissions. If ClipBar is rebuilt on another Mac with a new certificate, macOS treats it as a new code identity and the old permission records may no longer apply.
+
+1. Quit ClipBar and make sure the only installed copy is `/Applications/ClipBar.app`.
+2. Open **System Settings → Privacy & Security → Accessibility**, remove the old ClipBar entry instead of only toggling it off.
+3. Do the same under **Input Monitoring**.
+4. Install the newly signed build, then Control-click `/Applications/ClipBar.app` → **Open** for its first launch.
+5. Add that exact App back to both permission lists, enable it, then quit and reopen ClipBar once.
+
+If a stale entry still prevents authorization, reset only ClipBar's records in Terminal, relaunch it, and grant both permissions again:
+
+```bash
+tccutil reset Accessibility com.huxiaolong.ClipBar
+tccutil reset ListenEvent com.huxiaolong.ClipBar
+```
+
+This does not delete clipboard history or settings. Do not remove `~/Library/Application Support/ClipBar` while repairing permissions.
+
 ## Quick start
 
 | Action | Default shortcut |
@@ -76,6 +95,7 @@ Then enable for ClipBar:
 | Select in panel | `←` `→` |
 | Paste selection | `Enter` or click |
 | Enqueue from panel | `⌘`-click or hover `⊕` |
+| Activate search | Click the search field or `⌘F` |
 
 All shortcuts are customizable in Settings.
 
@@ -100,11 +120,18 @@ All shortcuts are customizable in Settings.
 macOS 14+ with Xcode Command Line Tools (full Xcode not required):
 
 ```bash
+./scripts/create-local-signing-identity.sh  # once per build Mac
 ./scripts/build-app.sh          # dist/ClipBar.app
-./scripts/make-pkg.sh           # dist/ClipBar-x.y.z.pkg
+./scripts/make-pkg.sh           # dist/ClipBar-x.y.z.pkg + .pkg.sha256
 ./scripts/make-dmg.sh           # dist/ClipBar-x.y.z.dmg
 ./scripts/run-tests.sh          # core unit tests
 ```
+
+The one-time setup creates a long-lived self-signed code-signing identity in
+`~/Library/Keychains/clipboard-dev.keychain-db`. Release builds fail instead of
+silently falling back to ad-hoc signing. Keep that keychain private. If a new
+build Mac creates a replacement identity, users must follow the re-authorization
+steps above once; later upgrades made with that same identity keep the permission.
 
 ## Tests
 
@@ -112,7 +139,7 @@ macOS 14+ with Xcode Command Line Tools (full Xcode not required):
 swift run CoreTests
 ```
 
-Covers insert/fetch, dedup, search, pin protection, clear, paste-back for text/image/file/RTF, hotkey registration, legacy DB migration, and a 10k-item perf check (fetch &lt;10ms, search &lt;5ms).
+Covers insert/fetch, dedup, search, pin protection, clear, paste-back for text/image/file/RTF, hotkey registration, legacy DB migration, panel focus policy, and a 10k-item perf check (fetch &lt;10ms, search &lt;5ms).
 
 ## Stack
 

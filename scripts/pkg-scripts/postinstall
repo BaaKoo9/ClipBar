@@ -9,7 +9,11 @@ xattr -dr com.apple.quarantine "$APP" >/dev/null 2>&1 || true
 
 CONSOLE_USER=$(stat -f "%Su" /dev/console 2>/dev/null || echo "")
 if [ -n "$CONSOLE_USER" ] && [ "$CONSOLE_USER" != "root" ]; then
-    sudo -u "$CONSOLE_USER" open "$APP" >/dev/null 2>&1 || true
+    CONSOLE_UID=$(id -u "$CONSOLE_USER" 2>/dev/null || echo "")
+    if [ -n "$CONSOLE_UID" ]; then
+        # 进入当前用户的 GUI bootstrap session，避免 root 安装脚本直接 open 偶发拉起失败。
+        launchctl asuser "$CONSOLE_UID" sudo -u "$CONSOLE_USER" open "$APP" >/dev/null 2>&1 || true
+    fi
 fi
 
 exit 0

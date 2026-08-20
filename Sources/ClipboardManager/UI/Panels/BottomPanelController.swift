@@ -13,6 +13,8 @@ final class BottomPanelController: NSObject {
     private var lastShowTime: CFAbsoluteTime = 0
     /// 忽略 didResignActive 的宽限时长（右键菜单关闭后会更晚触发 resign）。
     private var resignGraceSeconds: CFAbsoluteTime = 0.35
+    /// 面板可见期间提升交互调度优先级，避免应用闲置后从 App Nap 恢复时连续掉帧。
+    private var interactionActivity: NSObjectProtocol?
 
     init(viewModel: PanelViewModel) {
         self.viewModel = viewModel
@@ -62,6 +64,8 @@ final class BottomPanelController: NSObject {
             buildPanel()
         }
         guard let panel else { return }
+        beginInteractionActivity()
+        let pipelineStarted = CFAbsoluteTimeGetCurrent()
 
         // 在激活自己之前记住当前前台 App，粘贴时定向注入到它
         let sourcePID = NSWorkspace.shared.frontmostApplication?.processIdentifier
@@ -84,6 +88,7 @@ final class BottomPanelController: NSObject {
         let showStarted = lastShowTime
 
         panel.setFrame(finalRect, display: true)
+        let frameFinished = CFAbsoluteTimeGetCurrent()
 
         // 直接上屏：淡入会与后台列表对齐叠成「一帧卡顿」体感
         let forceFront = secure || fromStatusMenu
@@ -99,9 +104,17 @@ final class BottomPanelController: NSObject {
             panel.makeKeyAndOrderFront(nil)
             panel.orderFrontRegardless()
         }
+        let frontFinished = CFAbsoluteTimeGetCurrent()
 
         viewModel.panelDidOpen()
-        DebugLog.write("show 首帧 \(Int((CFAbsoluteTimeGetCurrent() - showStarted) * 1000))ms forceFront=\(forceFront)")
+        let modelFinished = CFAbsoluteTimeGetCurrent()
+        DebugLog.write(
+            "show 首帧 \(Int((modelFinished - showStarted) * 1000))ms forceFront=\(forceFront) " +
+            "分段 pre=\(Int((showStarted - pipelineStarted) * 1000)) " +
+            "frame=\(Int((frameFinished - showStarted) * 1000)) " +
+            "front=\(Int((frontFinished - frameFinished) * 1000)) " +
+            "model=\(Int((modelFinished - frontFinished) * 1000))"
+        )
 
         let token = visibilityToken
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.2) { [weak self] in
@@ -122,10 +135,7 @@ final class BottomPanelController: NSObject {
     }
 
     func hide(animated: Bool = true, reason: String = "unknown") {
-        guard let panel, panel.isVisible else {
-            viewModel.panelDidClose()
-            return
-        }
+        guard let panel, panel.isVisible else { return }
         DebugLog.write("hide 面板 reason=\(reason) animated=\(animated)")
         visibilityToken &+= 1
         let token = visibilityToken
@@ -135,6 +145,7 @@ final class BottomPanelController: NSObject {
             panel.alphaValue = 1
             panel.level = .floating
             self.viewModel.panelDidClose()
+            self.endInteractionActivity()
         }
         if animated {
             NSAnimationContext.runAnimationGroup({ context in
@@ -148,6 +159,20 @@ final class BottomPanelController: NSObject {
         } else {
             finish()
         }
+    }
+
+    private func beginInteractionActivity() {
+        guard interactionActivity == nil else { return }
+        interactionActivity = ProcessInfo.processInfo.beginActivity(
+            options: [.userInitiatedAllowingIdleSystemSleep, .latencyCritical],
+            reason: "ClipBar panel interaction"
+        )
+    }
+
+    private func endInteractionActivity() {
+        guard let interactionActivity else { return }
+        ProcessInfo.processInfo.endActivity(interactionActivity)
+        self.interactionActivity = nil
     }
 
     private func buildPanel() {

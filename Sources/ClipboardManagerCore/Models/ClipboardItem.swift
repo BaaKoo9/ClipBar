@@ -96,6 +96,19 @@ public struct ClipboardItem: Identifiable, Equatable {
     }
 }
 
+/// 一次历史列表查询的完整快照，保证条目与计数来自同一条存储队列。
+public struct ClipboardHistoryPage: Equatable {
+    public let items: [ClipboardItem]
+    public let totalCount: Int
+    public let matchCount: Int
+
+    public init(items: [ClipboardItem], totalCount: Int, matchCount: Int) {
+        self.items = items
+        self.totalCount = totalCount
+        self.matchCount = matchCount
+    }
+}
+
 /// 准备写入历史的新记录。
 public struct NewClipboardItem {
     public let kind: ClipboardItem.Kind

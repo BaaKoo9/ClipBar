@@ -6,6 +6,8 @@ import Foundation
 // 轻量测试框架（CommandLineTools 无 XCTest 模块时的替代）
 private var passed = 0
 private var failed = 0
+private let shouldRunSystemIntegrationTests =
+    ProcessInfo.processInfo.environment["CLIPBAR_SKIP_SYSTEM_TESTS"] != "1"
 
 private func expect(_ condition: Bool, _ name: String) {
     if condition {
@@ -105,6 +107,110 @@ private func testSearchMatchesText() throws {
 
     expectEqual(result.count, 1, "搜索只命中一条")
     expectEqual(result.first?.text, "SwiftUI 开发笔记", "命中内容正确")
+}
+
+private func testUpdatePackageVerifier() throws {
+    let digest = "BA7816BF8F01CFEA414140DE5DAE2223B00361A396177A9CB410FF61F20015AD"
+    let checksum = Data("\(digest)  ClipBar-1.0.9.pkg\n".utf8)
+    expectEqual(
+        UpdatePackageVerifier.parseSHA256(from: checksum),
+        digest.lowercased(),
+        "更新校验文件应解析并标准化 SHA-256"
+    )
+    expect(
+        UpdatePackageVerifier.parseSHA256(from: Data("not-a-digest".utf8)) == nil,
+        "更新校验文件应拒绝非法摘要"
+    )
+    expect(
+        UpdatePackageVerifier.parseSHA256(
+            from: Data(repeating: 0x61, count: UpdatePackageVerifier.maximumChecksumFileSize + 1)
+        ) == nil,
+        "更新校验文件应拒绝超长内容"
+    )
+
+    let tempDir = FileManager.default.temporaryDirectory
+        .appendingPathComponent("UpdateVerifierTests-\(UUID().uuidString)", isDirectory: true)
+    try FileManager.default.createDirectory(at: tempDir, withIntermediateDirectories: true)
+    defer { try? FileManager.default.removeItem(at: tempDir) }
+    let file = tempDir.appendingPathComponent("package.bin")
+    try Data("abc".utf8).write(to: file, options: .atomic)
+    expectEqual(
+        try UpdatePackageVerifier.sha256Hex(ofFile: file),
+        digest.lowercased(),
+        "更新包文件应计算正确 SHA-256"
+    )
+}
+
+private func testPaginationAndHistoryCounts() throws {
+    let tempDir = FileManager.default.temporaryDirectory
+        .appendingPathComponent("PaginationTests-\(UUID().uuidString)", isDirectory: true)
+    try FileManager.default.createDirectory(at: tempDir, withIntermediateDirectories: true)
+    defer { try? FileManager.default.removeItem(at: tempDir) }
+
+    let previousLimit = AppSettings.shared.historyLimit
+    AppSettings.shared.historyLimit = 5_000
+    defer { AppSettings.shared.historyLimit = previousLimit }
+
+    let store = ClipboardStore(dbURL: tempDir.appendingPathComponent("test.sqlite"))
+    for index in 0..<95 {
+        let prefix = index.isMultiple(of: 3) ? "分页命中" : "普通条目"
+        store.upsert(NewClipboardItem(
+            kind: index.isMultiple(of: 5) ? .link : .text,
+            text: "\(prefix) \(index)",
+            hash: "pagination-\(index)"
+        ))
+    }
+
+    let semaphore = DispatchSemaphore(value: 0)
+    var firstPage = ClipboardHistoryPage(items: [], totalCount: 0, matchCount: 0)
+    var secondPage = firstPage
+    var thirdPage = firstPage
+
+    store.fetchHistoryPage(limit: 40) { page in
+        firstPage = page
+        semaphore.signal()
+    }
+    _ = semaphore.wait(timeout: .now() + 5)
+    store.fetchHistoryPage(limit: 40, offset: 40) { page in
+        secondPage = page
+        semaphore.signal()
+    }
+    _ = semaphore.wait(timeout: .now() + 5)
+    store.fetchHistoryPage(limit: 40, offset: 80) { page in
+        thirdPage = page
+        semaphore.signal()
+    }
+    _ = semaphore.wait(timeout: .now() + 5)
+
+    expectEqual(firstPage.totalCount, 95, "分页快照应返回库总量")
+    expectEqual(firstPage.matchCount, 95, "无筛选时匹配量应等于库总量")
+    expectEqual(firstPage.items.count, 40, "分页首屏应返回 40 条")
+    expectEqual(secondPage.items.count, 40, "分页第二页应返回 40 条")
+    expectEqual(thirdPage.items.count, 15, "分页末页应返回剩余 15 条")
+
+    let allIDs = (firstPage.items + secondPage.items + thirdPage.items).map(\.id)
+    expectEqual(Set(allIDs).count, 95, "连续分页不应出现重复条目")
+
+    var searchPage = firstPage
+    store.fetchHistoryPage(query: "分页命中", limit: 10, offset: 30) { page in
+        searchPage = page
+        semaphore.signal()
+    }
+    _ = semaphore.wait(timeout: .now() + 5)
+
+    expectEqual(searchPage.totalCount, 95, "搜索分页仍应返回库总量")
+    expectEqual(searchPage.matchCount, 32, "搜索分页应返回完整匹配量")
+    expectEqual(searchPage.items.count, 2, "搜索末页应返回剩余匹配项")
+    expect(searchPage.items.allSatisfy { $0.text?.contains("分页命中") == true }, "搜索分页内容应全部命中")
+
+    var linkPage = firstPage
+    store.fetchHistoryPage(kind: ClipboardItem.Kind.link.rawValue, limit: 40) { page in
+        linkPage = page
+        semaphore.signal()
+    }
+    _ = semaphore.wait(timeout: .now() + 5)
+    expectEqual(linkPage.matchCount, 19, "类型筛选应返回完整匹配量")
+    expect(linkPage.items.allSatisfy { $0.kind == .link }, "类型筛选内容应保持一致")
 }
 
 
@@ -490,7 +596,7 @@ private func testLegacyDatabaseMigration() throws {
     defer { try? FileManager.default.removeItem(at: tempDir) }
     let dbURL = tempDir.appendingPathComponent("legacy.sqlite")
     var db: OpaquePointer?
-    dbURL.path.withCString { path in
+    _ = dbURL.path.withCString { path in
         sqlite3_open(path, &db)
     }
     let legacySchema = """
@@ -572,7 +678,7 @@ private func testRetentionDeletesOldUnpinned() throws {
     // 把过期条目的 updated_at 拨到 8 天前（保留天数 7）
     let staleTS = Date().addingTimeInterval(-8 * 24 * 60 * 60).timeIntervalSince1970
     var db: OpaquePointer?
-    dbURL.path.withCString { path in
+    _ = dbURL.path.withCString { path in
         sqlite3_open(path, &db)
     }
     let sql = "UPDATE items SET updated_at = \(staleTS) WHERE hash IN ('stale','pinned-stale')" as NSString
@@ -691,27 +797,75 @@ private func testLabelsAssignAndFilter() throws {
     expectEqual(items.first?.hash, "work1", "touch 后应排到最前")
 }
 
+private func testPanelInteractionPolicy() {
+    expectEqual(
+        PanelInteractionPolicy.focusTarget(for: .panelOpened),
+        .panel,
+        "呼出面板时不应自动激活搜索框与输入法"
+    )
+    expectEqual(
+        PanelInteractionPolicy.focusTarget(for: .searchRequested),
+        .searchField,
+        "明确请求搜索时应聚焦搜索框"
+    )
+    expectEqual(
+        PanelInteractionPolicy.selectionIndex(currentIndex: nil, itemCount: 8, offset: 1),
+        0,
+        "没有当前选中项时应从首项开始"
+    )
+    expectEqual(
+        PanelInteractionPolicy.selectionIndex(currentIndex: 3, itemCount: 8, offset: 1),
+        4,
+        "向右应选择下一项"
+    )
+    expectEqual(
+        PanelInteractionPolicy.selectionIndex(currentIndex: 0, itemCount: 8, offset: -1),
+        0,
+        "向左不应越过首项"
+    )
+    expectEqual(
+        PanelInteractionPolicy.selectionIndex(currentIndex: 7, itemCount: 8, offset: 1),
+        7,
+        "向右不应越过末项"
+    )
+    expect(
+        !PanelInteractionPolicy.shouldScroll(targetID: 102, visibleIDs: [101, 102, 103]),
+        "目标卡片已可见时不应触发滚动"
+    )
+    expect(
+        PanelInteractionPolicy.shouldScroll(targetID: 104, visibleIDs: [101, 102, 103]),
+        "目标卡片不可见时才应触发滚动"
+    )
+}
+
 // MARK: - 运行
 
 do {
     try testInsertAndFetch()
     try testDuplicateRefreshesInsteadOfInserting()
     try testSearchMatchesText()
+    try testUpdatePackageVerifier()
+    try testPaginationAndHistoryCounts()
     try testPinnedItemSurvivesLimitCleanup()
     try testPinnedItemsSortFirst()
     try testHistoryLimitEnforcedStrictly()
     try testImageFilesCleanedOnClear()
     try testClearRemovesEverything()
-    testPasteText()
-    try testPasteFile()
-    try testPasteImage()
     try testPerformanceWith10kItems()
-    testHotKeyRegistration()
-    try testRTFPastePreservesFormat()
     try testLegacyDatabaseMigration()
     try testRetentionDeletesOldUnpinned()
     try testDeleteRecentImageFilesAfterImageUpsert()
     try testLabelsAssignAndFilter()
+    testPanelInteractionPolicy()
+    if shouldRunSystemIntegrationTests {
+        testPasteText()
+        try testPasteFile()
+        try testPasteImage()
+        testHotKeyRegistration()
+        try testRTFPastePreservesFormat()
+    } else {
+        print("⏭️ 已跳过依赖系统剪贴板与全局热键权限的集成测试")
+    }
 } catch {
     failed += 1
     print("❌ 测试抛出异常: \(error)")

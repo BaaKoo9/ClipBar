@@ -65,7 +65,7 @@ public final class PasteService {
     @discardableResult
     public static func activateApp(pid: pid_t) -> String? {
         guard let app = NSRunningApplication(processIdentifier: pid) else { return nil }
-        app.activate(options: [.activateIgnoringOtherApps])
+        app.activate(options: [])
         return app.localizedName
     }
 
@@ -80,7 +80,7 @@ public final class PasteService {
             return
         }
         DebugLog.write("注入 ⌘V：pid=\(pid) app=\(app.localizedName ?? "未知")")
-        app.activate(options: [.activateIgnoringOtherApps])
+        app.activate(options: [])
 
         let deadline = CFAbsoluteTimeGetCurrent() + maxWait
         func waitForFocus() {
@@ -97,7 +97,7 @@ public final class PasteService {
                 return
             }
             if !app.isActive {
-                app.activate(options: [.activateIgnoringOtherApps])
+                app.activate(options: [])
             }
             DispatchQueue.main.asyncAfter(deadline: .now() + focusPollInterval, execute: waitForFocus)
         }

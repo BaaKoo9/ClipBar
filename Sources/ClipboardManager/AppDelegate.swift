@@ -56,7 +56,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
             object: nil,
             queue: .main
         ) { [weak self] _ in
-            self?.registerHotKeys()
+            Task { @MainActor in
+                self?.registerHotKeys()
+            }
         }
 
         NotificationCenter.default.addObserver(
@@ -64,12 +66,16 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
             object: nil,
             queue: .main
         ) { [weak self] _ in
-            HotKeyService.shared.rebuildMonitor()
-            if HotKeyService.isAccessibilityAvailable, !HotKeyService.isListeningAvailable {
-                HotKeyService.requestListeningAccess()
+            Task { @MainActor in
+                // 面板呼出也会激活 accessory 应用。健康监听无需每次拆装；拆装发生在
+                // 首帧后的交互窗口，会与第一次 hover/方向键更新争用主线程。
+                HotKeyService.shared.ensureMonitorInstalled()
+                if HotKeyService.isAccessibilityAvailable, !HotKeyService.isListeningAvailable {
+                    HotKeyService.requestListeningAccess()
+                }
+                // 用户手动点菜单也会走到这里；若启动预热尚未完成，借这次激活补一次重建。
+                self?.rebuildHotKeysAfterActivationIfNeeded(reason: "didBecomeActive")
             }
-            // 用户手动点菜单也会走到这里；若启动预热尚未完成，借这次激活补一次重建。
-            self?.rebuildHotKeysAfterActivationIfNeeded(reason: "didBecomeActive")
         }
 
         // 休眠唤醒后系统常会让事件 tap 失效，这里主动重建。
@@ -78,11 +84,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
             object: nil,
             queue: .main
         ) { [weak self] _ in
-            DebugLog.write("系统唤醒，重建快捷键通道")
-            self?.didPrimeHotKeys = false
-            HotKeyService.shared.reinitialize()
-            self?.registerHotKeys()
-            self?.primeHotKeyDelivery()
+            Task { @MainActor in
+                DebugLog.write("系统唤醒，重建快捷键通道")
+                self?.didPrimeHotKeys = false
+                HotKeyService.shared.reinitialize()
+                self?.registerHotKeys()
+                self?.primeHotKeyDelivery()
+            }
         }
     }
 
@@ -150,7 +158,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
             if let previous,
                previous.processIdentifier != ProcessInfo.processInfo.processIdentifier,
                !previous.isTerminated {
-                previous.activate(options: [.activateIgnoringOtherApps])
+                previous.activate(options: [])
             }
             // accessory 即使 activate 了前台 App，自身 isActive 仍可能为 true；显式 deactivate 更干净
             NSApp.deactivate()

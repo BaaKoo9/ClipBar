@@ -191,7 +191,8 @@ public final class HotKeyService {
         lock.unlock()
 
         let carbonOK = registerCarbonHotKey(tag: tag, keyCode: keyCode, modifiers: modifiers)
-        rebuildMonitor()
+        // 全局监听的回调会实时读取 registrations；新增或更新注册无需拆装监听。
+        ensureMonitorInstalled()
         ensureTapHealthy()
         let hasTap = self.eventTap != nil
         DebugLog.write(
@@ -351,6 +352,22 @@ public final class HotKeyService {
     }
 
     // MARK: - NSEvent 监听
+
+    /// 确保辅助监听存在，但不拆装健康的监听。
+    ///
+    /// `didBecomeActive` 在每次面板呼出时都会触发，因此恢复路径与常规激活必须分开：
+    /// 权限变化、系统唤醒和安全输入结束仍调用 `rebuildMonitor()` 强制恢复。
+    public func ensureMonitorInstalled() {
+        let installIfNeeded = { [weak self] in
+            guard let self, self.monitor == nil else { return }
+            self.rebuildMonitor()
+        }
+        if Thread.isMainThread {
+            installIfNeeded()
+        } else {
+            DispatchQueue.main.async(execute: installIfNeeded)
+        }
+    }
 
     public func rebuildMonitor() {
         let install = { [weak self] in

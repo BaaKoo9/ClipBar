@@ -9,7 +9,7 @@ public final class ClipboardStore {
     public static let shared = ClipboardStore()
 
     private var db: OpaquePointer?
-    private var insertCount = 0
+    private var lastRetentionSweepAt: TimeInterval = 0
     private let queue = DispatchQueue(label: "com.huxiaolong.clipboard.store", qos: .userInitiated)
 
     private let dbURL: URL
@@ -17,6 +17,7 @@ public final class ClipboardStore {
 
     private static let itemColumns =
         "id, kind, text, rtf_path, image_path, original_image_path, file_paths, hash, pinned, created_at, updated_at, source_app_bundle_id"
+    private static let retentionSweepInterval: TimeInterval = 60 * 60
 
     public init(dbURL: URL? = nil, imagesDirectory: URL? = nil) {
         let url = dbURL ?? Self.defaultDBURL()
@@ -51,10 +52,27 @@ public final class ClipboardStore {
             at: dbURL.deletingLastPathComponent(),
             withIntermediateDirectories: true
         )
-        sqlite3_open_v2(dbURL.path, &db, SQLITE_OPEN_READWRITE | SQLITE_OPEN_CREATE | SQLITE_OPEN_FULLMUTEX, nil)
+        let status = sqlite3_open_v2(
+            dbURL.path,
+            &db,
+            SQLITE_OPEN_READWRITE | SQLITE_OPEN_CREATE | SQLITE_OPEN_FULLMUTEX,
+            nil
+        )
+        guard status == SQLITE_OK else {
+            let message = db.map { String(cString: sqlite3_errmsg($0)) } ?? "unknown"
+            DebugLog.write("SQLite 打开失败 status=\(status) path=\(self.dbURL.path) error=\(message)")
+            if let db {
+                sqlite3_close(db)
+                self.db = nil
+            }
+            return
+        }
+        sqlite3_busy_timeout(db, 2_000)
     }
 
     private func createSchema() {
+        guard db != nil else { return }
+        execute("PRAGMA foreign_keys = ON")
         execute(
             """
             CREATE TABLE IF NOT EXISTS items (
@@ -75,6 +93,10 @@ public final class ClipboardStore {
         )
         execute("CREATE INDEX IF NOT EXISTS idx_items_updated ON items(updated_at DESC)")
         execute("CREATE INDEX IF NOT EXISTS idx_items_kind_updated ON items(kind, updated_at DESC)")
+        execute(
+            "CREATE INDEX IF NOT EXISTS idx_items_kind_panel_order " +
+            "ON items(kind, pinned DESC, updated_at DESC, id DESC)"
+        )
         execute("CREATE INDEX IF NOT EXISTS idx_items_pinned_updated ON items(pinned, updated_at)")
         execute(
             """
@@ -244,9 +266,10 @@ public final class ClipboardStore {
                 id: id,
                 kind: ClipboardItem.Kind(rawValue: kindRaw) ?? .text,
                 text: text,
-                rtfPath: AppPaths.resolveExistingPath(rtfPath) ?? rtfPath,
-                imagePath: AppPaths.resolveExistingPath(imagePath) ?? imagePath,
-                originalImagePath: AppPaths.resolveExistingPath(originalImagePath) ?? originalImagePath,
+                // 列表查询不做 fileExists：每条 3 次探测会堵热路径，粘贴/缩略图各自解析
+                rtfPath: rtfPath,
+                imagePath: imagePath,
+                originalImagePath: originalImagePath,
                 filePaths: filePaths,
                 hash: hash,
                 pinned: pinned,
@@ -311,7 +334,8 @@ public final class ClipboardStore {
         queue.async { [weak self] in
             guard let self else { return }
             let now = Date().timeIntervalSince1970
-            if self.exists(hash: item.hash) {
+            let inserted = !self.exists(hash: item.hash)
+            if !inserted {
                 self.execute(
                     """
                     UPDATE items SET kind = ?, text = ?, rtf_path = ?, image_path = ?, original_image_path = ?,
@@ -332,10 +356,15 @@ public final class ClipboardStore {
                      item.originalImagePath ?? "", item.filePaths.isEmpty ? nil : self.encodeFilePaths(item.filePaths),
                      item.hash, now, now, item.sourceAppBundleID]
                 )
-                self.insertCount += 1
             }
-            self.enforceRetention()
-            self.enforceLimit()
+            // TTL 无需每次复制都全表检查；新插入仍立即执行条数上限，保持容量语义不变。
+            if now - self.lastRetentionSweepAt >= Self.retentionSweepInterval {
+                self.enforceRetention()
+                self.lastRetentionSweepAt = now
+            }
+            if inserted {
+                self.enforceLimit()
+            }
             DispatchQueue.main.async {
                 NotificationCenter.default.post(name: .clipboardHistoryDidChange, object: nil)
             }
@@ -454,8 +483,15 @@ public final class ClipboardStore {
     /// 按 TTL + 条数上限立即清理；completion 参数为是否删除了条目。
     public func enforceHistoryLimit(completion: ((Bool) -> Void)? = nil) {
         queue.async { [weak self] in
+            guard let self else {
+                if let completion {
+                    DispatchQueue.main.async { completion(false) }
+                }
+                return
+            }
             let started = CFAbsoluteTimeGetCurrent()
-            let removed = (self?.enforceRetention() ?? 0) + (self?.enforceLimit() ?? 0)
+            let removed = self.enforceRetention() + self.enforceLimit()
+            self.lastRetentionSweepAt = Date().timeIntervalSince1970
             let ms = Int((CFAbsoluteTimeGetCurrent() - started) * 1000)
             if ms > 5 || removed > 0 {
                 DebugLog.write("历史清理耗时 \(ms)ms removed=\(removed)")
@@ -505,6 +541,7 @@ public final class ClipboardStore {
         kind: String? = nil,
         labelID: Int64? = nil,
         limit: Int? = nil,
+        offset: Int = 0,
         completion: @escaping ([ClipboardItem]) -> Void
     ) {
         queue.async { [weak self] in
@@ -512,25 +549,15 @@ public final class ClipboardStore {
                 completion([])
                 return
             }
-            var sql = "SELECT \(Self.itemColumns) FROM items"
-            var bindings: [Any?] = []
-            var clauses: [String] = []
-            if let kind {
-                clauses.append("kind = ?")
-                bindings.append(kind)
-            }
-            if let labelID {
-                clauses.append("id IN (SELECT item_id FROM item_labels WHERE label_id = ?)")
-                bindings.append(labelID)
-            }
-            if !clauses.isEmpty {
-                sql += " WHERE " + clauses.joined(separator: " AND ")
-            }
-            sql += " ORDER BY pinned DESC, updated_at DESC, id DESC"
-            if let limit {
-                sql += " LIMIT ?"
-                bindings.append(limit)
-            }
+            let (sql, bindings) = self.itemListSQL(
+                countOnly: false,
+                kind: kind,
+                labelID: labelID,
+                tagName: nil,
+                textQuery: "",
+                limit: limit,
+                offset: offset
+            )
             completion(self.query(sql, bindings))
         }
     }
@@ -540,21 +567,12 @@ public final class ClipboardStore {
         kind: String? = nil,
         labelID: Int64? = nil,
         limit: Int? = nil,
+        offset: Int = 0,
         completion: @escaping ([ClipboardItem]) -> Void
     ) {
-        let trimmed = queryText.trimmingCharacters(in: .whitespacesAndNewlines)
-        // `#tag`：按标签名筛选；可与剩余文本组合
-        var tagName: String?
-        var textQuery = trimmed
-        if trimmed.hasPrefix("#") {
-            let rest = String(trimmed.dropFirst())
-            let parts = rest.split(separator: " ", maxSplits: 1, omittingEmptySubsequences: true)
-            tagName = parts.first.map(String.init)
-            textQuery = parts.count > 1 ? String(parts[1]) : ""
-        }
-
+        let (tagName, textQuery) = Self.parseSearchText(queryText)
         if textQuery.isEmpty, tagName == nil {
-            fetchAll(kind: kind, labelID: labelID, limit: limit, completion: completion)
+            fetchAll(kind: kind, labelID: labelID, limit: limit, offset: offset, completion: completion)
             return
         }
 
@@ -563,43 +581,170 @@ public final class ClipboardStore {
                 completion([])
                 return
             }
-            var sql = "SELECT \(Self.itemColumns) FROM items WHERE 1=1"
-            var bindings: [Any?] = []
-            if let kind {
-                sql += " AND kind = ?"
-                bindings.append(kind)
+            let (sql, bindings) = self.itemListSQL(
+                countOnly: false,
+                kind: kind,
+                labelID: labelID,
+                tagName: tagName,
+                textQuery: textQuery,
+                limit: limit,
+                offset: offset
+            )
+            completion(self.query(sql, bindings))
+        }
+    }
+
+    /// 库总量 + 当前筛选/搜索的匹配量（都不带 LIMIT，供角标和滚动续页判断）。
+    public func countHistory(
+        query: String = "",
+        kind: String? = nil,
+        labelID: Int64? = nil,
+        completion: @escaping (_ total: Int, _ matched: Int) -> Void
+    ) {
+        let (tagName, textQuery) = Self.parseSearchText(query)
+        queue.async { [weak self] in
+            guard let self else {
+                completion(0, 0)
+                return
             }
-            if let labelID {
-                sql += " AND id IN (SELECT item_id FROM item_labels WHERE label_id = ?)"
-                bindings.append(labelID)
+            let counts = self.historyCounts(
+                kind: kind,
+                labelID: labelID,
+                tagName: tagName,
+                textQuery: textQuery
+            )
+            completion(counts.total, counts.matched)
+        }
+    }
+
+    /// 同一次队列任务内返回列表与计数，避免历史写入穿插造成角标和列表不一致。
+    public func fetchHistoryPage(
+        query queryText: String = "",
+        kind: String? = nil,
+        labelID: Int64? = nil,
+        limit: Int,
+        offset: Int = 0,
+        completion: @escaping (ClipboardHistoryPage) -> Void
+    ) {
+        let (tagName, textQuery) = Self.parseSearchText(queryText)
+        queue.async { [weak self] in
+            guard let self else {
+                completion(ClipboardHistoryPage(items: [], totalCount: 0, matchCount: 0))
+                return
             }
-            if let tagName {
-                if tagName.isEmpty {
-                    sql += " AND id IN (SELECT item_id FROM item_labels)"
-                } else {
-                    sql += """
-                     AND id IN (
+
+            let counts = self.historyCounts(
+                kind: kind,
+                labelID: labelID,
+                tagName: tagName,
+                textQuery: textQuery
+            )
+            let (itemSQL, itemBindings) = self.itemListSQL(
+                countOnly: false,
+                kind: kind,
+                labelID: labelID,
+                tagName: tagName,
+                textQuery: textQuery,
+                limit: max(limit, 1),
+                offset: max(offset, 0)
+            )
+            completion(ClipboardHistoryPage(
+                items: self.query(itemSQL, itemBindings),
+                totalCount: counts.total,
+                matchCount: counts.matched
+            ))
+        }
+    }
+
+    private func historyCounts(
+        kind: String?,
+        labelID: Int64?,
+        tagName: String?,
+        textQuery: String
+    ) -> (total: Int, matched: Int) {
+        let total = scalarCount("SELECT COUNT(*) FROM items")
+        let hasFilter = kind != nil || labelID != nil || tagName != nil || !textQuery.isEmpty
+        guard hasFilter else { return (total, total) }
+
+        let (sql, bindings) = itemListSQL(
+            countOnly: true,
+            kind: kind,
+            labelID: labelID,
+            tagName: tagName,
+            textQuery: textQuery,
+            limit: nil,
+            offset: 0
+        )
+        return (total, scalarCount(sql, bindings))
+    }
+
+    private static func parseSearchText(_ raw: String) -> (tagName: String?, textQuery: String) {
+        let trimmed = raw.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard trimmed.hasPrefix("#") else { return (nil, trimmed) }
+        let rest = String(trimmed.dropFirst())
+        let parts = rest.split(separator: " ", maxSplits: 1, omittingEmptySubsequences: true)
+        let tagName = parts.first.map(String.init)
+        let textQuery = parts.count > 1 ? String(parts[1]) : ""
+        return (tagName, textQuery)
+    }
+
+    private func itemListSQL(
+        countOnly: Bool,
+        kind: String?,
+        labelID: Int64?,
+        tagName: String?,
+        textQuery: String,
+        limit: Int?,
+        offset: Int
+    ) -> (String, [Any?]) {
+        var sql = countOnly
+            ? "SELECT COUNT(*) FROM items"
+            : "SELECT \(Self.itemColumns) FROM items"
+        var bindings: [Any?] = []
+        var clauses: [String] = []
+        if let kind {
+            clauses.append("kind = ?")
+            bindings.append(kind)
+        }
+        if let labelID {
+            clauses.append("id IN (SELECT item_id FROM item_labels WHERE label_id = ?)")
+            bindings.append(labelID)
+        }
+        if let tagName {
+            if tagName.isEmpty {
+                clauses.append("id IN (SELECT item_id FROM item_labels)")
+            } else {
+                clauses.append("""
+                    id IN (
                         SELECT il.item_id FROM item_labels il
                         JOIN labels l ON l.id = il.label_id
                         WHERE l.name LIKE ?
-                     )
-                    """
-                    bindings.append(tagName)
-                }
+                    )
+                    """)
+                bindings.append(tagName)
             }
-            if !textQuery.isEmpty {
-                let pattern = "%\(textQuery)%"
-                sql += " AND (text LIKE ? OR file_paths LIKE ?)"
-                bindings.append(pattern)
-                bindings.append(pattern)
-            }
+        }
+        if !textQuery.isEmpty {
+            clauses.append("(text LIKE ? OR file_paths LIKE ?)")
+            let pattern = "%\(textQuery)%"
+            bindings.append(pattern)
+            bindings.append(pattern)
+        }
+        if !clauses.isEmpty {
+            sql += " WHERE " + clauses.joined(separator: " AND ")
+        }
+        if !countOnly {
             sql += " ORDER BY pinned DESC, updated_at DESC, id DESC"
             if let limit {
                 sql += " LIMIT ?"
                 bindings.append(limit)
+                if offset > 0 {
+                    sql += " OFFSET ?"
+                    bindings.append(offset)
+                }
             }
-            completion(self.query(sql, bindings))
         }
+        return (sql, bindings)
     }
 
     // MARK: - 标签
@@ -802,9 +947,10 @@ public final class ClipboardStore {
     private func removeContentFiles(for item: ClipboardItem) {
         let imageBase = imagesDirectory.standardizedFileURL.path
         let rtfBase = Self.defaultRTFDirectory().standardizedFileURL.path
-        var paths = [item.imagePath, item.originalImagePath, item.rtfPath].compactMap { $0 }
+        let paths = [item.imagePath, item.originalImagePath, item.rtfPath].compactMap { $0 }
         for path in paths {
-            let std = (path as NSString).standardizingPath
+            let resolved = AppPaths.resolveExistingPath(path) ?? path
+            let std = (resolved as NSString).standardizingPath
             let isSafe = std.hasPrefix(imageBase) || std.hasPrefix(rtfBase)
             guard isSafe else { continue }
             try? FileManager.default.removeItem(atPath: std)

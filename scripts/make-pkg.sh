@@ -4,8 +4,9 @@ set -euo pipefail
 # 生成 .pkg 安装包：双击后由系统安装器自动装到 /Applications 并启动，
 # 用户不需要手动拖拽。
 #
-# 注意：没有 Developer ID Installer 证书，安装包未签名，
-# 首次打开需右键 →「打开」绕过 Gatekeeper。
+# App 使用固定的本地自签名身份，升级时保持代码身份稳定。
+# 没有 Developer ID Installer 证书，因此 pkg 本身仍未签名；
+# 首次安装仍需右键 →「打开」绕过 Gatekeeper。
 
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 APP_NAME="ClipBar"
@@ -20,6 +21,7 @@ STAGE="$ROOT/dist/pkg-root"
 SCRIPTS="$ROOT/dist/pkg-scripts"
 COMPONENT="$ROOT/dist/component.pkg"
 PKG_PATH="$ROOT/dist/ClipBar-$VERSION.pkg"
+CHECKSUM_PATH="$PKG_PATH.sha256"
 
 rm -rf "$STAGE" "$SCRIPTS" "$COMPONENT"
 mkdir -p "$STAGE"
@@ -70,12 +72,20 @@ productbuild \
     --package-path "$ROOT/dist" \
     "$PKG_PATH" >/dev/null
 
+# 自动更新从 GitHub 直连读取该校验文件，再校验镜像下载的整个 pkg。
+# 哈希覆盖安装脚本和 App 载荷，因此签名证书换代不会让更新器误判失败。
+(
+    cd "$ROOT/dist"
+    shasum -a 256 "ClipBar-$VERSION.pkg" > "ClipBar-$VERSION.pkg.sha256"
+)
+
 rm -rf "$STAGE" "$SCRIPTS" "$COMPONENT" "$DIST"
 if [ -d "$ROOT/dist/$APP_NAME.app" ]; then
     find "$ROOT/dist/$APP_NAME.app" -depth -delete
 fi
 
 # dist 只保留最新产物：清理旧版 pkg/dmg（本次留下当前版本 pkg）
-find "$ROOT/dist" -maxdepth 1 -type f \( -name 'ClipBar-*.pkg' -o -name 'ClipBar-*.dmg' -o -name 'Clipboard-Manager-*.pkg' -o -name 'Clipboard-Manager-*.dmg' -o -name 'Clipboard-Manager.dmg' \) ! -name "ClipBar-${VERSION}.pkg" -delete 2>/dev/null || true
+find "$ROOT/dist" -maxdepth 1 -type f \( -name 'ClipBar-*.pkg' -o -name 'ClipBar-*.pkg.sha256' -o -name 'ClipBar-*.dmg' -o -name 'Clipboard-Manager-*.pkg' -o -name 'Clipboard-Manager-*.dmg' -o -name 'Clipboard-Manager.dmg' \) ! -name "ClipBar-${VERSION}.pkg" ! -name "ClipBar-${VERSION}.pkg.sha256" -delete 2>/dev/null || true
 
 echo "PKG 已生成: $PKG_PATH"
+echo "SHA-256: $CHECKSUM_PATH"

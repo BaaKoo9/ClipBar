@@ -66,6 +66,25 @@
 - 辅助功能  
 - 输入监控  
 
+### 更换签名证书后的重新授权
+
+使用同一签名身份的正常升级会保留上述权限。如果换电脑构建并生成了新证书，macOS 会把 ClipBar 视为新的代码身份，旧权限记录可能不再生效。
+
+1. 退出 ClipBar，并确认机器上只保留 `/Applications/ClipBar.app` 这一份。
+2. 打开 **系统设置 → 隐私与安全性 → 辅助功能**，移除旧的 ClipBar 条目，不要只关闭再开启开关。
+3. 在 **输入监控** 中同样移除旧条目。
+4. 安装新签名版本，首次启动时 Control-单击 `/Applications/ClipBar.app` →「打开」。
+5. 把这一个 App 重新加入辅助功能和输入监控并开启，然后彻底退出并重新打开 ClipBar 一次。
+
+如果旧记录仍导致权限不生效，可在终端中只重置 ClipBar 的权限记录，再启动 App 并重新授权：
+
+```bash
+tccutil reset Accessibility com.huxiaolong.ClipBar
+tccutil reset ListenEvent com.huxiaolong.ClipBar
+```
+
+以上操作不会删除剪贴板历史或设置。修复权限时不要删除 `~/Library/Application Support/ClipBar`。
+
 ## 快速上手
 
 | 操作 | 默认快捷键 |
@@ -76,6 +95,7 @@
 | 面板内选择 | `←` `→` |
 | 粘贴选中项 | 回车 或 单击 |
 | 面板内入队 | `⌘`+点击 或 悬停 `⊕` |
+| 激活搜索 | 点击搜索框 或 `⌘F` |
 
 所有快捷键可在设置中自定义。
 
@@ -100,11 +120,14 @@
 需 macOS 14+ 与 Xcode Command Line Tools（不必装完整 Xcode）：
 
 ```bash
+./scripts/create-local-signing-identity.sh  # 每台构建 Mac 首次运行
 ./scripts/build-app.sh          # 生成 dist/ClipBar.app
-./scripts/make-pkg.sh           # 生成 dist/ClipBar-x.y.z.pkg
+./scripts/make-pkg.sh           # 生成 .pkg 与 .pkg.sha256
 ./scripts/make-dmg.sh           # 生成 dist/ClipBar-x.y.z.dmg
 ./scripts/run-tests.sh          # 核心单元测试
 ```
+
+首次初始化会在 `~/Library/Keychains/clipboard-dev.keychain-db` 创建长期自签名身份。正式构建缺少该身份时会直接失败，不会静默退回 ad-hoc 签名。若换电脑后创建新身份，朋友需要按上面的步骤重新授权一次；此后继续使用同一身份发布即可保留权限。
 
 ## 测试
 
@@ -112,7 +135,7 @@
 swift run CoreTests
 ```
 
-覆盖：插入/读取、去重、搜索、置顶保护、清空、文本/图片/文件/RTF 回填、热键注册、旧库迁移、1 万条性能（读取 &lt;10ms、搜索 &lt;5ms）。
+覆盖：插入/读取、去重、搜索、置顶保护、清空、文本/图片/文件/RTF 回填、热键注册、旧库迁移、面板焦点策略、1 万条性能（读取 &lt;10ms、搜索 &lt;5ms）。
 
 ## 技术栈
 

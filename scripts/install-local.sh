@@ -7,25 +7,16 @@ ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 APP_NAME="ClipBar"
 APP_SRC="$ROOT/dist/$APP_NAME.app"
 APP_DST="/Applications/$APP_NAME.app"
-LEGACY_DST="/Applications/Clipboard Manager.app"
 
 cd "$ROOT"
 ./scripts/build-app.sh "${1:-release}"
 
 pkill -x "ClipBar" 2>/dev/null || true
-pkill -x "Clipboard Manager" 2>/dev/null || true
 sleep 0.3
 
-rm -rf "$APP_DST" "$LEGACY_DST"
+rm -rf "$APP_DST"
 cp -R "$APP_SRC" "$APP_DST"
-
-if security find-identity -p codesigning 2>/dev/null | grep -q "ClipBar Dev"; then
-    codesign --force --deep --sign "ClipBar Dev" "$APP_DST"
-elif security find-identity -p codesigning 2>/dev/null | grep -q "Clipboard Manager Dev"; then
-    codesign --force --deep --sign "Clipboard Manager Dev" "$APP_DST"
-else
-    codesign --force --deep --sign - "$APP_DST"
-fi
+codesign --verify --deep --strict --verbose=2 "$APP_DST"
 
 # 本地调试不保留 dist 里的 .app，避免与 /Applications 两份并存误开旧包
 rm -rf "$APP_SRC"
@@ -33,4 +24,5 @@ rm -rf "$APP_SRC"
 VERSION=$(/usr/libexec/PlistBuddy -c "Print :CFBundleShortVersionString" "${APP_DST}/Contents/Info.plist")
 BUILD=$(/usr/libexec/PlistBuddy -c "Print :CFBundleVersion" "${APP_DST}/Contents/Info.plist")
 echo "已安装到 ${APP_DST} (${VERSION} build ${BUILD})"
-open -a "${APP_NAME}"
+# 直接按安装路径启动，避免覆盖后 LaunchServices 名称索引尚未刷新导致 `open -a` 找不到 App。
+open "${APP_DST}"

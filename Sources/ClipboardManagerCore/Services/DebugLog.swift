@@ -43,7 +43,7 @@ public enum DebugLog {
         }
 
         handle = try? FileHandle(forWritingTo: url)
-        try? handle?.seekToEnd()
+        _ = try? handle?.seekToEnd()
         return handle
     }
 }

@@ -13,14 +13,22 @@ final class PanelViewModel: ObservableObject {
     @Published var filterKind: ClipboardItem.Kind?
     @Published var filterLabelID: Int64?
     @Published var labels: [ClipboardLabel] = []
-    @Published var scrollRequestID: Int64?
+    private(set) var scrollRequestID: Int64?
     /// 递增以强制触发滚动（即使目标 id 未变，呼出时需滚回起点）。
     @Published private(set) var scrollGeneration: UInt = 0
+    /// 每次呼出都把键盘焦点还给面板，避免搜索框激活输入法时同步阻塞主线程。
+    @Published private(set) var panelFocusGeneration: UInt = 0
     /// 本次滚动是否使用动画。
-    @Published private(set) var scrollAnimated = true
+    private(set) var scrollAnimated = true
     /// 底部提示中的入队/出队快捷键文案，随设置变更同步。
     @Published var enqueueHotKeyLabel = ""
     @Published var dequeueHotKeyLabel = ""
+    /// 库里的总条数（不受首屏分页影响）。
+    @Published private(set) var libraryCount = 0
+    /// 当前筛选/搜索的匹配条数（同样不带 LIMIT）。
+    @Published private(set) var matchCount = 0
+    /// 控制分页哨兵与异步回调只在当前面板会话内生效。
+    @Published private(set) var isPanelOpen = false
 
     /// AppDelegate 注入：请求关闭面板（Esc、粘贴完成后等），参数为是否播放淡出动画。
     var onRequestClose: ((Bool) -> Void)?
@@ -41,16 +49,19 @@ final class PanelViewModel: ObservableObject {
     private var historyChangeObserver: NSObjectProtocol?
     private var labelsChangeObserver: NSObjectProtocol?
     /// 呼出首帧关闭列表/滚动动画，避免「先旧后新」的一帧卡顿。
-    @Published private(set) var suppressListAnimation = false
+    /// 这是一次操作内的事务标记，不是界面内容；发布它会让整棵面板视图额外失效。
+    private(set) var suppressListAnimation = false
     private var refreshInFlight = false
     private var refreshPendingForceSelectFirst: Bool?
+    private var loadMoreInFlight = false
+    private var listGeneration = 0
     private var lastRefreshAt: CFAbsoluteTime = 0
     private var lastRefreshKind: ClipboardItem.Kind?
     private var lastRefreshLabelID: Int64?
     private var lastRefreshQuery = ""
 
-    /// 面板是横向滚动条，超出这个量的历史无法被浏览，取回来只会拖慢每次刷新。
-    private static let pageSize = 300
+    /// 首屏与每次向右续页的条数；全库仍可搜、可滚到。
+    private static let pageSize = 40
 
     init() {
         refreshHotKeyLabels()
@@ -124,11 +135,19 @@ final class PanelViewModel: ObservableObject {
     func loadHistory() {
         guard !loaded else { return }
         loaded = true
-        refresh(forceSelectFirst: true)
+        refresh(forceSelectFirst: true) { [weak self] in
+            ClipboardStore.shared.enforceHistoryLimit { changed in
+                DebugLog.write("启动清理 changed=\(changed)")
+                guard changed else { return }
+                self?.refresh(forceSelectFirst: false)
+            }
+        }
     }
 
     /// 面板显示前调用：记住前台 App，并同步重置筛选/选中，保证首帧内容已就绪。
     func panelWillOpen(from pid: pid_t?) {
+        isPanelOpen = true
+        panelFocusGeneration &+= 1
         targetPID = pid
         suppressListAnimation = true
         filterWorkItem?.cancel()
@@ -150,40 +169,77 @@ final class PanelViewModel: ObservableObject {
         scrollGeneration &+= 1
     }
 
-    /// 面板呼出后：后台对齐数据；内容未变则不重绑列表。
+    /// 面板呼出后：热缓存已是默认首屏则跳过刷新。
     func panelDidOpen() {
         let openStarted = CFAbsoluteTimeGetCurrent()
         let finishOpen: () -> Void = { [weak self] in
             guard let self else { return }
             let ms = Int((CFAbsoluteTimeGetCurrent() - openStarted) * 1000)
             DebugLog.write("呼出就绪 \(ms)ms items=\(self.items.count)")
+            // 再等两帧再开动画，避免首帧布局和悬停抢主线程
             DispatchQueue.main.async { [weak self] in
-                self?.suppressListAnimation = false
+                DispatchQueue.main.async { [weak self] in
+                    self?.suppressListAnimation = false
+                }
             }
         }
 
-        if loaded {
+        if canReuseOpenCache {
+            DebugLog.write("呼出跳过刷新 cache=\(self.items.count)")
+            finishOpen()
+        } else if loaded {
             refresh(forceSelectFirst: true, completion: finishOpen)
         } else {
             loadHistory()
             finishOpen()
         }
-
-        ClipboardStore.shared.enforceHistoryLimit { [weak self] changed in
-            DebugLog.write("呼出清理 changed=\(changed)")
-            guard changed else { return }
-            self?.refresh(forceSelectFirst: false)
-        }
     }
 
     func panelDidClose() {
+        guard isPanelOpen else {
+            DebugLog.write("忽略重复 panelDidClose")
+            return
+        }
+        isPanelOpen = false
+        let wasRefreshInFlight = refreshInFlight
+        invalidateListRequests()
         searchWorkItem?.cancel()
         filterWorkItem?.cancel()
+        let hadActiveFilter = filterKind != nil
+            || filterLabelID != nil
+            || !searchText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
         if !searchText.isEmpty {
             searchText = ""
         }
         filterKind = nil
         filterLabelID = nil
+        if items.count > Self.pageSize {
+            items = Array(items.prefix(Self.pageSize))
+        }
+        // 写入和设置变更已经负责容量清理；关闭面板只预热被筛选/中断的默认首屏。
+        if hadActiveFilter || wasRefreshInFlight {
+            refresh(forceSelectFirst: false)
+        }
+    }
+
+    /// 关闭面板时让所有旧列表回调失效，避免续页在裁回首屏后再次追加。
+    private func invalidateListRequests() {
+        listGeneration &+= 1
+        refreshInFlight = false
+        refreshPendingForceSelectFirst = nil
+        loadMoreInFlight = false
+    }
+
+    /// 启动或上次刷新已拉过默认全量，且历史变更会走通知时，呼出不必再打库。
+    private var canReuseOpenCache: Bool {
+        loaded
+            && !items.isEmpty
+            && lastRefreshKind == nil
+            && lastRefreshLabelID == nil
+            && lastRefreshQuery.isEmpty
+            && filterKind == nil
+            && filterLabelID == nil
+            && searchText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
     }
 
     // MARK: - 搜索与筛选
@@ -284,6 +340,55 @@ final class PanelViewModel: ObservableObject {
         ClipboardStore.shared.reorderLabels(orderedIDs: labels.map(\.id))
     }
 
+    var canLoadMore: Bool {
+        isPanelOpen && !refreshInFlight && !loadMoreInFlight && items.count < matchCount
+    }
+
+    var historyCountHelp: String {
+        if lastRefreshKind != nil || lastRefreshLabelID != nil || !lastRefreshQuery.isEmpty {
+            return "匹配 \(matchCount) 条，库中共 \(libraryCount) 条"
+        }
+        return "共 \(libraryCount) 条"
+    }
+
+    func loadMore() {
+        guard canLoadMore else { return }
+        loadMoreInFlight = true
+        let generation = listGeneration
+        let query = lastRefreshQuery
+        let kind = lastRefreshKind
+        let labelID = lastRefreshLabelID
+        let offset = items.count
+        let finish: ([ClipboardItem]) -> Void = { [weak self] page in
+            DispatchQueue.main.async {
+                guard let self, generation == self.listGeneration else { return }
+                self.apply(page, forceSelectFirst: false, append: true)
+                self.loadMoreInFlight = false
+                if !page.isEmpty {
+                    DebugLog.write("续页 +\(page.count) loaded=\(self.items.count)/\(self.matchCount)")
+                }
+            }
+        }
+        if query.isEmpty {
+            ClipboardStore.shared.fetchAll(
+                kind: kind?.rawValue,
+                labelID: labelID,
+                limit: Self.pageSize,
+                offset: offset,
+                completion: finish
+            )
+        } else {
+            ClipboardStore.shared.search(
+                query,
+                kind: kind?.rawValue,
+                labelID: labelID,
+                limit: Self.pageSize,
+                offset: offset,
+                completion: finish
+            )
+        }
+    }
+
     private func refresh(forceSelectFirst: Bool, completion: (() -> Void)? = nil) {
         if refreshInFlight {
             refreshPendingForceSelectFirst =
@@ -293,15 +398,24 @@ final class PanelViewModel: ObservableObject {
             return
         }
         refreshInFlight = true
+        loadMoreInFlight = false
+        listGeneration &+= 1
+        let generation = listGeneration
         let query = searchText.trimmingCharacters(in: .whitespacesAndNewlines)
         let kind = filterKind
         let labelID = filterLabelID
-        let fetchLimit = min(Self.pageSize, AppSettings.shared.historyLimit + 50)
+        // 同一列表里置顶、打标签或删除时保留已浏览深度；切换查询仍回到轻量首屏。
+        let sameContext = query == lastRefreshQuery
+            && kind == lastRefreshKind
+            && labelID == lastRefreshLabelID
+        let fetchLimit = sameContext ? max(Self.pageSize, items.count) : Self.pageSize
         let started = CFAbsoluteTimeGetCurrent()
-        let finish: ([ClipboardItem]) -> Void = { [weak self] items in
+        let finish: (ClipboardHistoryPage) -> Void = { [weak self] page in
             DispatchQueue.main.async {
-                guard let self else { return }
-                self.apply(items, forceSelectFirst: forceSelectFirst)
+                guard let self, generation == self.listGeneration else { return }
+                self.libraryCount = page.totalCount
+                self.matchCount = page.matchCount
+                self.apply(page.items, forceSelectFirst: forceSelectFirst)
                 self.lastRefreshAt = CFAbsoluteTimeGetCurrent()
                 self.lastRefreshKind = kind
                 self.lastRefreshLabelID = labelID
@@ -309,7 +423,7 @@ final class PanelViewModel: ObservableObject {
                 self.refreshInFlight = false
                 let ms = Int((CFAbsoluteTimeGetCurrent() - started) * 1000)
                 if ms > 16 {
-                    DebugLog.write("列表刷新 \(ms)ms count=\(items.count)")
+                    DebugLog.write("列表刷新 \(ms)ms count=\(page.items.count)")
                 }
                 completion?()
                 if let pending = self.refreshPendingForceSelectFirst {
@@ -318,26 +432,25 @@ final class PanelViewModel: ObservableObject {
                 }
             }
         }
-        if query.isEmpty {
-            ClipboardStore.shared.fetchAll(
-                kind: kind?.rawValue,
-                labelID: labelID,
-                limit: fetchLimit,
-                completion: finish
-            )
-        } else {
-            ClipboardStore.shared.search(
-                query,
-                kind: kind?.rawValue,
-                labelID: labelID,
-                limit: fetchLimit,
-                completion: finish
-            )
-        }
+        ClipboardStore.shared.fetchHistoryPage(
+            query: query,
+            kind: kind?.rawValue,
+            labelID: labelID,
+            limit: fetchLimit,
+            completion: finish
+        )
     }
 
-    private func apply(_ newItems: [ClipboardItem], forceSelectFirst: Bool) {
+    private func apply(_ newItems: [ClipboardItem], forceSelectFirst: Bool, append: Bool = false) {
         let update = {
+            if append {
+                let existing = Set(self.items.map(\.id))
+                let extra = newItems.filter { !existing.contains($0.id) }
+                if !extra.isEmpty {
+                    self.items.append(contentsOf: extra)
+                }
+                return
+            }
             let sameContent = self.items.count == newItems.count
                 && zip(self.items, newItems).allSatisfy { a, b in
                     a.id == b.id
@@ -356,7 +469,10 @@ final class PanelViewModel: ObservableObject {
                 if self.selectedID != firstID {
                     self.selectedID = firstID
                 }
-                self.requestScroll(to: firstID, animated: !self.suppressListAnimation)
+                // 呼出时 panelWillOpen 已滚过；避免二次 bump 触发列表再布局
+                if self.scrollRequestID != firstID {
+                    self.requestScroll(to: firstID, animated: !self.suppressListAnimation)
+                }
                 return
             }
             if let selectedID = self.selectedID, self.items.contains(where: { $0.id == selectedID }) {
@@ -380,12 +496,24 @@ final class PanelViewModel: ObservableObject {
         items.first { $0.id == selectedID }
     }
 
-    func moveSelection(offset: Int) {
-        guard !items.isEmpty else { return }
-        let currentIndex = items.firstIndex { $0.id == selectedID } ?? -1
-        let newIndex = min(max(currentIndex + offset, 0), items.count - 1)
-        selectedID = items[newIndex].id
-        requestScroll(to: selectedID, animated: true)
+    @discardableResult
+    func moveSelection(offset: Int) -> Int64? {
+        let currentIndex = items.firstIndex { $0.id == selectedID }
+        guard let newIndex = PanelInteractionPolicy.selectionIndex(
+            currentIndex: currentIndex,
+            itemCount: items.count,
+            offset: offset
+        ) else {
+            return nil
+        }
+        let newID = items[newIndex].id
+        if selectedID != newID {
+            selectedID = newID
+        }
+        if newIndex >= items.count - 4 {
+            loadMore()
+        }
+        return newID
     }
 
     // MARK: - 粘贴
@@ -418,18 +546,13 @@ final class PanelViewModel: ObservableObject {
 
         if shouldPaste {
             let pid = targetPID
-            let handoff = {
-                if NSApp.isActive {
-                    NSApp.deactivate()
-                }
-                PasteService.activateAndPaste(pid: pid)
-                DebugLog.write("粘贴路径 source=\(source) write=\(writeMs)ms → 注入")
-            }
             if deferFocusHandoff {
                 // 等鼠标抬起与面板 orderOut 落定后再交还焦点，避免点击路径明显慢于回车
-                DispatchQueue.main.async(execute: handoff)
+                DispatchQueue.main.async { [weak self] in
+                    self?.performPasteHandoff(pid: pid, source: source, writeMilliseconds: writeMs)
+                }
             } else {
-                handoff()
+                performPasteHandoff(pid: pid, source: source, writeMilliseconds: writeMs)
             }
         } else if !PasteService.hasAccessibilityPermission {
             DebugLog.write("粘贴：无辅助功能权限，仅写回剪贴板 write=\(writeMs)ms")
@@ -441,6 +564,14 @@ final class PanelViewModel: ObservableObject {
         } else {
             DebugLog.write("粘贴：仅写回剪贴板 write=\(writeMs)ms")
         }
+    }
+
+    private func performPasteHandoff(pid: pid_t?, source: String, writeMilliseconds: Int) {
+        if NSApp.isActive {
+            NSApp.deactivate()
+        }
+        PasteService.activateAndPaste(pid: pid)
+        DebugLog.write("粘贴路径 source=\(source) write=\(writeMilliseconds)ms → 注入")
     }
 
     // MARK: - 基础操作
@@ -514,7 +645,7 @@ final class PanelViewModel: ObservableObject {
         }
     }
 
-    private func performEnqueueFromClipboard() {
+    private nonisolated func performEnqueueFromClipboard() {
         let pasteboard = NSPasteboard.general
 
         // 图片优先（截图工具可能同时提供图片数据和文件引用）
@@ -585,7 +716,7 @@ final class PanelViewModel: ObservableObject {
             return
         }
 
-        DispatchQueue.main.async {
+        Task { @MainActor in
             ToastWindowController.shared.show(
                 title: "无法入队",
                 message: "剪贴板为空或不支持的类型",
@@ -594,8 +725,8 @@ final class PanelViewModel: ObservableObject {
         }
     }
 
-    private func enqueueAppend(_ item: ClipboardItem) {
-        DispatchQueue.main.async { [weak self] in
+    private nonisolated func enqueueAppend(_ item: ClipboardItem) {
+        Task { @MainActor [weak self] in
             guard let self else { return }
             self.pasteQueue.append(item)
             DebugLog.write("入队[速]: \(item.kind.rawValue) \(item.previewLine.prefix(20)) count=\(self.pasteQueue.count)")
@@ -648,14 +779,14 @@ final class PanelViewModel: ObservableObject {
 
     // MARK: - 图片落盘
 
-    private func saveImageSync(data: Data, hash: String) -> (String, String)? {
+    private nonisolated func saveImageSync(data: Data, hash: String) -> (String, String)? {
         let directory = ClipboardStore.defaultImagesDirectory()
         let originalURL = directory.appendingPathComponent("\(hash).data")
         let thumbURL = directory.appendingPathComponent("\(hash)_thumb.jpg")
         do {
-            try data.write(to: originalURL)
+            try data.write(to: originalURL, options: .atomic)
             let thumbData = Self.makeThumbnail(from: data, maxDimension: 512)
-            try thumbData?.write(to: thumbURL)
+            try thumbData?.write(to: thumbURL, options: .atomic)
             return (originalURL.path, thumbURL.path)
         } catch {
             print("保存入队图片失败: \(error)")

@@ -8,6 +8,11 @@ public final class ClipboardMonitor {
     public static let shared = ClipboardMonitor()
 
     private let pasteboard = NSPasteboard.general
+    /// 保持复制顺序，同时把 hash、格式转换和落盘移出主线程。
+    private let processingQueue = DispatchQueue(
+        label: "com.huxiaolong.clipboard.monitor.process",
+        qos: .userInitiated
+    )
     private var lastChangeCount: Int
     private var timer: Timer?
 
@@ -85,7 +90,7 @@ public final class ClipboardMonitor {
                 lastImageIngestAt = CFAbsoluteTimeGetCurrent()
                 let ignoredHash = lastWrittenHash
                 let source = sourceAppBundleID
-                DispatchQueue.global(qos: .userInitiated).async {
+                processingQueue.async {
                     guard let data = try? Data(contentsOf: urls[0]) else { return }
                     Self.persistAndUpsertImage(
                         data,
@@ -117,20 +122,24 @@ public final class ClipboardMonitor {
 
         // 3. 文本（含链接），带格式时同时保存 RTF
         if let text = plainText(from: items), !text.isEmpty {
-            let hash = Hashing.sha256Hex(text)
-            guard hash != lastWrittenHash else { return }
-            let kind: ClipboardItem.Kind = text.isLikelyURL ? .link : .text
-            var rtfPath: String?
-            if let rtfData = pasteboard.data(forType: .rtf), !rtfData.isEmpty {
-                rtfPath = saveRTF(data: rtfData, hash: hash)
+            let ignoredHash = lastWrittenHash
+            let rtfData = pasteboard.data(forType: .rtf)
+            let source = sourceAppBundleID
+            processingQueue.async {
+                let hash = Hashing.sha256Hex(text)
+                guard hash != ignoredHash else { return }
+                let kind: ClipboardItem.Kind = text.isLikelyURL ? .link : .text
+                let rtfPath = rtfData.flatMap { data in
+                    data.isEmpty ? nil : Self.persistRTF(data: data, hash: hash)
+                }
+                ClipboardStore.shared.upsert(NewClipboardItem(
+                    kind: kind,
+                    text: text,
+                    rtfPath: rtfPath,
+                    hash: hash,
+                    sourceAppBundleID: source
+                ))
             }
-            ClipboardStore.shared.upsert(NewClipboardItem(
-                kind: kind,
-                text: text,
-                rtfPath: rtfPath,
-                hash: hash,
-                sourceAppBundleID: sourceAppBundleID
-            ))
         }
     }
 
@@ -148,7 +157,7 @@ public final class ClipboardMonitor {
         let ignored = ignoredHash ?? lastWrittenHash
         lastImageIngestAt = CFAbsoluteTimeGetCurrent()
         let source = sourceAppBundleID
-        DispatchQueue.global(qos: .userInitiated).async {
+        processingQueue.async {
             Self.persistAndUpsertImage(imageData, sourceAppBundleID: source, ignoredHash: ignored)
         }
     }
@@ -188,10 +197,10 @@ public final class ClipboardMonitor {
         return false
     }
 
-    private func saveRTF(data: Data, hash: String) -> String? {
+    private static nonisolated func persistRTF(data: Data, hash: String) -> String? {
         let url = ClipboardStore.defaultRTFDirectory().appendingPathComponent("\(hash).rtf")
         do {
-            try data.write(to: url)
+            try data.write(to: url, options: .atomic)
             return url.path
         } catch {
             print("保存 RTF 失败: \(error)")
@@ -218,9 +227,9 @@ public final class ClipboardMonitor {
         let originalURL = directory.appendingPathComponent("\(hash).data")
         let thumbURL = directory.appendingPathComponent("\(hash)_thumb.jpg")
         do {
-            try data.write(to: originalURL)
+            try data.write(to: originalURL, options: .atomic)
             let thumbData = makeThumbnail(from: data, maxDimension: 512)
-            try thumbData?.write(to: thumbURL)
+            try thumbData?.write(to: thumbURL, options: .atomic)
             return (originalURL.path, thumbURL.path)
         } catch {
             DebugLog.write("保存图片失败: \(error)")

@@ -62,14 +62,19 @@ final class ToastWindowController {
             panel.animator().alphaValue = 1
         }
 
+        let panelID = ObjectIdentifier(panel)
         let task = DispatchWorkItem { [weak self] in
-            guard let self else { return }
+            guard let self,
+                  self.window.map(ObjectIdentifier.init) == panelID else { return }
             NSAnimationContext.runAnimationGroup({ context in
                 context.duration = 0.125
                 self.window?.animator().alphaValue = 0
-            }) {
-                self.window?.orderOut(nil)
-                self.window = nil
+            }) { [weak self] in
+                Task { @MainActor in
+                    guard self?.window.map(ObjectIdentifier.init) == panelID else { return }
+                    self?.window?.orderOut(nil)
+                    self?.window = nil
+                }
             }
         }
         hideTask = task
@@ -167,13 +172,17 @@ final class ToastWindowController {
             self.queueHosting = nil
             return
         }
+        let windowID = ObjectIdentifier(queueWindow)
         NSAnimationContext.runAnimationGroup({ context in
             context.duration = 0.12
             queueWindow.animator().alphaValue = 0
         }) { [weak self] in
-            queueWindow.orderOut(nil)
-            self?.queueWindow = nil
-            self?.queueHosting = nil
+            Task { @MainActor in
+                guard self?.queueWindow.map(ObjectIdentifier.init) == windowID else { return }
+                self?.queueWindow?.orderOut(nil)
+                self?.queueWindow = nil
+                self?.queueHosting = nil
+            }
         }
     }
 }

@@ -74,3 +74,6 @@ fastlane/test_output
 
 # 会话交接文档（本地生成，不入库）
 /HANDOFF.md
+
+# 本机发布手册（每次发布前 Agent 必读，禁止提交）
+/RELEASE_LOCAL.md
