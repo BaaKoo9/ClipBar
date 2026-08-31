@@ -28,13 +28,13 @@ Summon with a hotkey, pick with arrow keys, paste with Enter — without leaving
 ## Highlights
 
 - **Snapshot bar** — horizontal cards with type filters and custom labels
-- **Sequential paste** — enqueue copies, dequeue in order with a side queue
+- **Sequential paste** — enqueue, drag-reorder, reverse, or remove items in the side queue
 - **Instant search** — keyword highlight; `#tag` jumps to a label
 - **Local-first privacy** — clipboard history stays on your Mac (SQLite + media cache)
 - **Zero third-party deps** — Swift + SwiftUI + AppKit only
 
 <p align="center">
-  <img src="docs/images/queue.png?v=20260812orig" width="720" alt="ClipBar paste queue" />
+  <img src="docs/images/queue.png?v=20260831queue" width="720" alt="ClipBar paste queue" />
 </p>
 
 ## Requirements

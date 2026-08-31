@@ -28,13 +28,13 @@
 ## 亮点
 
 - **快照条** — 底部横向卡片，支持类型筛选与自定义标签
-- **顺序粘贴** — 入队复制、出队粘贴，侧边队列常驻
+- **顺序粘贴** — 侧边队列支持拖拽排序、倒序、单项删除与顺序出队
 - **即时搜索** — 关键词高亮；`#标签` 快速筛选
 - **本地优先** — 历史仅存本机（SQLite + 图片/RTF 缓存）
 - **零第三方依赖** — 纯 Swift + SwiftUI + AppKit
 
 <p align="center">
-  <img src="docs/images/queue.png?v=20260812orig" width="720" alt="ClipBar 粘贴队列" />
+  <img src="docs/images/queue.png?v=20260831queue" width="720" alt="ClipBar 粘贴队列" />
 </p>
 
 ## 系统要求

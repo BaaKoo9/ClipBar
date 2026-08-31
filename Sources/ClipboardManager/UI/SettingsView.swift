@@ -281,7 +281,7 @@ struct SettingsView: View {
                     Text("3,000").tag(3000)
                 }
                 .labelsHidden()
-                .frame(width: 110)
+                .frame(width: 82)
                 .onChange(of: historyLimit) { _, _ in
                     generalDirty = true
                     generalSaveFlash = false

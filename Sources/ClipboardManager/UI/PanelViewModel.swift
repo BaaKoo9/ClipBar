@@ -3,13 +3,24 @@ import ClipboardManagerCore
 import Foundation
 import SwiftUI
 
+/// 队列中的一次入队记录。独立 ID 允许同一剪贴板条目重复入队并分别排序或删除。
+struct PasteQueueEntry: Identifiable, Equatable {
+    let id: UUID
+    let item: ClipboardItem
+
+    init(id: UUID = UUID(), item: ClipboardItem) {
+        self.id = id
+        self.item = item
+    }
+}
+
 /// 面板的共享状态：历史数据、选中项、搜索、粘贴队列与 Toast。
 @MainActor
 final class PanelViewModel: ObservableObject {
     @Published var searchText = ""
     @Published var items: [ClipboardItem] = []
     @Published var selectedID: Int64?
-    @Published var pasteQueue: [ClipboardItem] = []
+    @Published private(set) var pasteQueue: [PasteQueueEntry] = []
     @Published var filterKind: ClipboardItem.Kind?
     @Published var filterLabelID: Int64?
     @Published var labels: [ClipboardLabel] = []
@@ -321,7 +332,7 @@ final class PanelViewModel: ObservableObject {
         }
     }
 
-    /// 拖拽过程中的即时重排（仅更新内存；松手后再落库）。
+    /// 拖拽落地时更新内存顺序；调用方随后统一落库。
     func moveLabel(draggingID: Int64, before targetID: Int64?) {
         guard let from = labels.firstIndex(where: { $0.id == draggingID }) else { return }
         var ordered = labels
@@ -334,6 +345,14 @@ final class PanelViewModel: ObservableObject {
             ordered.append(item)
         }
         labels = ordered
+    }
+
+    func moveLabel(id: Int64, offset: Int) {
+        guard let sourceIndex = labels.firstIndex(where: { $0.id == id }) else { return }
+        let targetIndex = min(max(sourceIndex + offset, 0), labels.count - 1)
+        guard sourceIndex != targetIndex else { return }
+        moveLabel(draggingID: id, before: labels[targetIndex].id)
+        commitLabelOrder()
     }
 
     func commitLabelOrder() {
@@ -605,14 +624,46 @@ final class PanelViewModel: ObservableObject {
         guard let item = selectedItem else { return }
         let count = pasteQueue.count + 1
         DebugLog.write("面板入队: \(item.kind.rawValue) \(item.previewLine.prefix(20)) count=\(count)")
-        pasteQueue.append(item)
-        ToastWindowController.shared.showQueue(items: pasteQueue)
+        pasteQueue.append(PasteQueueEntry(item: item))
+        refreshQueueWindow()
     }
 
     func clearQueue() {
         DebugLog.write("清空队列")
         pasteQueue = []
         ToastWindowController.shared.hideQueue()
+    }
+
+    func reverseQueue() {
+        guard pasteQueue.count > 1 else { return }
+        pasteQueue.reverse()
+        DebugLog.write("队列倒序 count=\(self.pasteQueue.count)")
+    }
+
+    func removeQueueEntry(id: UUID) {
+        guard let index = pasteQueue.firstIndex(where: { $0.id == id }) else { return }
+        let removed = pasteQueue.remove(at: index)
+        DebugLog.write("队列删除: \(removed.item.kind.rawValue) index=\(index) 剩余=\(self.pasteQueue.count)")
+        refreshQueueWindow()
+    }
+
+    func moveQueueEntry(id: UUID, over targetID: UUID) {
+        guard let sourceIndex = pasteQueue.firstIndex(where: { $0.id == id }),
+              let targetIndex = pasteQueue.firstIndex(where: { $0.id == targetID }),
+              sourceIndex != targetIndex else { return }
+        pasteQueue = PanelInteractionPolicy.moving(
+            pasteQueue,
+            from: sourceIndex,
+            over: targetIndex
+        )
+        DebugLog.write("队列排序: \(sourceIndex) → \(targetIndex)")
+    }
+
+    func moveQueueEntry(id: UUID, offset: Int) {
+        guard let sourceIndex = pasteQueue.firstIndex(where: { $0.id == id }) else { return }
+        let targetIndex = min(max(sourceIndex + offset, 0), pasteQueue.count - 1)
+        guard sourceIndex != targetIndex else { return }
+        moveQueueEntry(id: id, over: pasteQueue[targetIndex].id)
     }
 
     /// 全局快捷键：模拟普通复制（⌘C）后再把新剪贴板内容加入队列。
@@ -728,9 +779,9 @@ final class PanelViewModel: ObservableObject {
     private nonisolated func enqueueAppend(_ item: ClipboardItem) {
         Task { @MainActor [weak self] in
             guard let self else { return }
-            self.pasteQueue.append(item)
+            self.pasteQueue.append(PasteQueueEntry(item: item))
             DebugLog.write("入队[速]: \(item.kind.rawValue) \(item.previewLine.prefix(20)) count=\(self.pasteQueue.count)")
-            ToastWindowController.shared.showQueue(items: self.pasteQueue)
+            self.refreshQueueWindow()
         }
     }
 
@@ -744,7 +795,7 @@ final class PanelViewModel: ObservableObject {
             )
             return
         }
-        let item = pasteQueue.removeFirst()
+        let item = pasteQueue.removeFirst().item
         let remaining = pasteQueue.count
         DebugLog.write("出队: \(item.kind.rawValue) \(item.previewLine.prefix(20)) 剩余=\(remaining)")
         // 先记住目标：deactivate 之后 frontmostApplication 会变。
@@ -769,10 +820,14 @@ final class PanelViewModel: ObservableObject {
                 systemImage: "exclamationmark.triangle"
             )
         }
+        refreshQueueWindow()
+    }
+
+    private func refreshQueueWindow() {
         if pasteQueue.isEmpty {
             ToastWindowController.shared.hideQueue()
         } else {
-            ToastWindowController.shared.showQueue(items: pasteQueue)
+            ToastWindowController.shared.showQueue(viewModel: self)
         }
     }
 

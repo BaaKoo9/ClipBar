@@ -7,9 +7,6 @@ import SwiftUI
 final class ToastWindowController {
     static let shared = ToastWindowController()
 
-    /// 队列窗口 X 按钮触发的额外动作（清空队列由外部注入）。
-    var onQueueClose: (() -> Void)?
-
     private var window: NSPanel?
     private var hideTask: DispatchWorkItem?
 
@@ -83,9 +80,9 @@ final class ToastWindowController {
 
     // MARK: - 队列常驻窗口
 
-    private static let queueWidth: CGFloat = 340
+    private static let queueWidth: CGFloat = 360
     private static let queueHeaderHeight: CGFloat = 48
-    private static let queueRowHeight: CGFloat = 32
+    private static let queueRowHeight: CGFloat = 36
     private static let queueRowSpacing: CGFloat = 6
     private static let queueMaxVisibleRows = 10
     private static let queuePadding: CGFloat = 28
@@ -99,7 +96,8 @@ final class ToastWindowController {
             + queuePadding
     }
 
-    func showQueue(items: [ClipboardItem]) {
+    func showQueue(viewModel: PanelViewModel) {
+        let items = viewModel.pasteQueue
         DebugLog.write("队列窗口：显示/更新 \(items.count) 条")
         queueHideTask?.cancel()
 
@@ -112,14 +110,12 @@ final class ToastWindowController {
             width: Self.queueWidth,
             height: height
         )
-        let listView = QueueListView(items: items, onClose: { [weak self] in
-            self?.hideQueue()
-            self?.onQueueClose?()
-        })
+        let listView = QueueListView(viewModel: viewModel)
 
         if let queueWindow, let queueHosting {
-            queueHosting.rootView = listView
-            queueWindow.setFrame(frame, display: true)
+            let shouldAnimateResize = queueWindow.isVisible
+                && abs(queueWindow.frame.height - frame.height) > 0.5
+            queueWindow.setFrame(frame, display: true, animate: shouldAnimateResize)
             queueHosting.view.needsLayout = true
             queueHosting.view.layoutSubtreeIfNeeded()
             if !queueWindow.isVisible {
@@ -237,80 +233,62 @@ private struct ToastView: View {
 // MARK: - 队列列表视图
 
 private struct QueueListView: View {
-    let items: [ClipboardItem]
-    var onClose: () -> Void
+    @ObservedObject var viewModel: PanelViewModel
+    @State private var reorderState = DeferredReorderState<UUID>()
+    @State private var queueDragOffset = CGSize.zero
 
     private static let maxVisibleRows = 10
-    private static let rowHeight: CGFloat = 32
+    private static let rowHeight: CGFloat = 36
+    private static let rowStride: CGFloat = 42
+    private static let dropAnimationDuration = 0.04
+
+    private var items: [PasteQueueEntry] {
+        viewModel.pasteQueue
+    }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 10) {
-            HStack(alignment: .center, spacing: 8) {
-                RoundedRectangle(cornerRadius: 5, style: .continuous)
-                    .fill(
-                        LinearGradient(
-                            colors: [BrandTheme.mint, BrandTheme.cyan],
-                            startPoint: .topLeading,
-                            endPoint: .bottomTrailing
-                        )
-                    )
-                    .frame(width: 18, height: 18)
-                    .overlay(
-                        Image(systemName: "list.number")
-                            .font(.system(size: 9, weight: .bold))
-                            .foregroundStyle(BrandTheme.inkTop)
-                    )
-
-                VStack(alignment: .leading, spacing: 1) {
-                    Text("QUEUE")
-                        .font(.system(size: 9, weight: .semibold))
-                        .foregroundStyle(.secondary)
-                        .tracking(0.8)
-                    Text("\(items.count) 项")
-                        .font(.system(size: 13.5, weight: .semibold))
-                }
-                .frame(maxWidth: .infinity, alignment: .leading)
-
-                Button(action: onClose) {
-                    Image(systemName: "xmark")
-                        .font(.system(size: 11, weight: .semibold))
-                        .foregroundStyle(.secondary)
-                        .frame(width: 24, height: 24)
-                        .background(Color.primary.opacity(0.08), in: Circle())
-                }
-                .buttonStyle(.plain)
-                .help("关闭提示并清空队列")
-            }
+            queueHeader
 
             ScrollViewReader { proxy in
                 ScrollView(.vertical, showsIndicators: items.count > Self.maxVisibleRows) {
                     // 队列最多展示约 10 行：用 VStack 避免 LazyVStack 首条入队时不绘制
                     VStack(alignment: .leading, spacing: 6) {
-                        ForEach(Array(items.enumerated()), id: \.offset) { index, item in
-                            HStack(alignment: .center, spacing: 8) {
-                                Text("\(index + 1)")
-                                    .font(.system(size: 14, weight: .semibold).monospacedDigit())
-                                    .foregroundStyle(.primary.opacity(0.9))
-                                    .frame(width: 18, alignment: .leading)
-
-                                Text(truncated(item.previewLine))
-                                    .font(.system(size: 12.5))
-                                    .foregroundStyle(.primary.opacity(0.9))
-                                    .lineLimit(1)
-                                    .frame(maxWidth: .infinity, alignment: .leading)
-                            }
-                            .padding(.horizontal, 10)
-                            .frame(height: Self.rowHeight)
-                            .frame(maxWidth: .infinity, alignment: .leading)
-                            .background(
-                                RoundedRectangle(cornerRadius: 10, style: .continuous)
-                                    .fill(Color.primary.opacity(0.08))
+                        ForEach(Array(items.enumerated()), id: \.element.id) { index, entry in
+                            QueueEntryRow(
+                                entry: entry,
+                                index: index,
+                                count: items.count,
+                                isDragging: reorderState.draggedID == entry.id,
+                                isDropTarget: reorderState.targetID == entry.id
+                                    && reorderState.draggedID != entry.id,
+                                onDelete: {
+                                    viewModel.removeQueueEntry(id: entry.id)
+                                },
+                                onMoveUp: {
+                                    viewModel.moveQueueEntry(id: entry.id, offset: -1)
+                                },
+                                onMoveDown: {
+                                    viewModel.moveQueueEntry(id: entry.id, offset: 1)
+                                }
                             )
-                            .id("queue-row-\(index)")
+                            .offset(
+                                y: reorderState.draggedID == entry.id
+                                    ? queueDragOffset.height
+                                    : 0
+                            )
+                            .scaleEffect(reorderState.draggedID == entry.id ? 1.018 : 1)
+                            .shadow(
+                                color: Color.black.opacity(reorderState.draggedID == entry.id ? 0.18 : 0),
+                                radius: 9,
+                                y: 4
+                            )
+                            .zIndex(reorderState.draggedID == entry.id ? 10 : 0)
+                            .highPriorityGesture(queueDragGesture(for: entry, index: index))
+                            .id(queueRowID(entry.id))
                         }
                     }
                     .frame(maxWidth: .infinity, alignment: .leading)
-                    .id(items.count)
                 }
                 .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
                 .onAppear {
@@ -339,13 +317,202 @@ private struct QueueListView: View {
         .shadow(color: Color.black.opacity(0.18), radius: 20, y: 8)
     }
 
-    private func scrollToLatest(_ proxy: ScrollViewProxy) {
-        guard !items.isEmpty else { return }
-        DispatchQueue.main.async {
-            withAnimation(.easeOut(duration: 0.15)) {
-                proxy.scrollTo("queue-row-\(items.count - 1)", anchor: .bottom)
+    private var queueHeader: some View {
+        HStack(alignment: .center, spacing: 8) {
+            RoundedRectangle(cornerRadius: 5, style: .continuous)
+                .fill(
+                    LinearGradient(
+                        colors: [BrandTheme.mint, BrandTheme.cyan],
+                        startPoint: .topLeading,
+                        endPoint: .bottomTrailing
+                    )
+                )
+                .frame(width: 18, height: 18)
+                .overlay(
+                    Image(systemName: "list.number")
+                        .font(.system(size: 9, weight: .bold))
+                        .foregroundStyle(BrandTheme.inkTop)
+                )
+
+            VStack(alignment: .leading, spacing: 1) {
+                Text("QUEUE")
+                    .font(.system(size: 9, weight: .semibold))
+                    .foregroundStyle(.secondary)
+                    .tracking(0.8)
+                Text("\(items.count) 项")
+                    .font(.system(size: 13.5, weight: .semibold))
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
+
+            QueueHeaderButton(title: "倒序", systemImage: "arrow.up.arrow.down") {
+                withAnimation(.snappy(duration: 0.18, extraBounce: 0)) {
+                    viewModel.reverseQueue()
+                }
+            }
+            .disabled(items.count < 2)
+
+            QueueHeaderButton(title: "清空", systemImage: "trash", isDestructive: true) {
+                viewModel.clearQueue()
             }
         }
+    }
+
+    private func scrollToLatest(_ proxy: ScrollViewProxy) {
+        guard let latest = items.last else { return }
+        DispatchQueue.main.async {
+            withAnimation(.easeOut(duration: 0.15)) {
+                proxy.scrollTo(queueRowID(latest.id), anchor: .bottom)
+            }
+        }
+    }
+
+    private func queueRowID(_ id: UUID) -> String {
+        "queue-row-\(id.uuidString)"
+    }
+
+    private func queueDragGesture(for entry: PasteQueueEntry, index: Int) -> some Gesture {
+        DragGesture(minimumDistance: 3)
+            .onChanged { drag in
+                if reorderState.draggedID == nil {
+                    reorderState.begin(dragging: entry.id)
+                    queueDragOffset = .zero
+                }
+                queueDragOffset = drag.translation
+                updateQueueDropTarget(sourceIndex: index, verticalTranslation: drag.translation.height)
+            }
+            .onEnded { _ in
+                guard let proposal = reorderState.finish(),
+                      let targetID = proposal.targetID else {
+                    reorderState.reset()
+                    queueDragOffset = .zero
+                    return
+                }
+
+                withAnimation(.easeOut(duration: Self.dropAnimationDuration)) {
+                    queueDragOffset = .zero
+                    viewModel.moveQueueEntry(id: proposal.sourceID, over: targetID)
+                }
+            }
+    }
+
+    private func updateQueueDropTarget(sourceIndex: Int, verticalTranslation: CGFloat) {
+        guard let targetIndex = PanelInteractionPolicy.dragTargetIndex(
+            sourceIndex: sourceIndex,
+            itemCount: items.count,
+            translation: Double(verticalTranslation),
+            itemStride: Double(Self.rowStride)
+        ) else { return }
+        reorderState.hover(over: items[targetIndex].id)
+    }
+}
+
+private struct QueueHeaderButton: View {
+    let title: String
+    let systemImage: String
+    var isDestructive = false
+    let action: () -> Void
+
+    var body: some View {
+        Button(action: action) {
+            Label(title, systemImage: systemImage)
+                .font(.system(size: 10, weight: .semibold))
+                .foregroundStyle(isDestructive ? Color.red.opacity(0.82) : Color.secondary)
+                .padding(.horizontal, 8)
+                .frame(height: 26)
+                .background(Color.primary.opacity(0.08), in: Capsule(style: .continuous))
+        }
+        .buttonStyle(.plain)
+        .opacity(isDestructive ? 0.92 : 1)
+        .accessibilityLabel(title)
+    }
+}
+
+private struct QueueEntryRow: View {
+    let entry: PasteQueueEntry
+    let index: Int
+    let count: Int
+    let isDragging: Bool
+    let isDropTarget: Bool
+    let onDelete: () -> Void
+    let onMoveUp: () -> Void
+    let onMoveDown: () -> Void
+
+    @State private var isHovering = false
+
+    var body: some View {
+        HStack(alignment: .center, spacing: 7) {
+            Image(systemName: "line.3.horizontal")
+                .font(.system(size: 10, weight: .semibold))
+                .foregroundStyle(isDragging ? BrandTheme.selectedStroke : Color.secondary.opacity(0.65))
+                .frame(width: 12)
+                .help("拖拽调整顺序")
+
+            Text("\(index + 1)")
+                .font(.system(size: 12.5, weight: .semibold).monospacedDigit())
+                .foregroundStyle(.primary.opacity(0.88))
+                .frame(width: 18, alignment: .leading)
+
+            Text(truncated(entry.item.previewLine))
+                .font(.system(size: 12.5))
+                .foregroundStyle(.primary.opacity(0.9))
+                .lineLimit(1)
+                .frame(maxWidth: .infinity, alignment: .leading)
+
+            Button(action: onDelete) {
+                Image(systemName: "xmark")
+                    .font(.system(size: 9.5, weight: .semibold))
+                    .foregroundStyle(isHovering ? Color.red.opacity(0.9) : Color.secondary.opacity(0.78))
+                    .frame(width: 24, height: 24)
+                    .background(
+                        Color.primary.opacity(isHovering ? 0.09 : 0.055),
+                        in: Circle()
+                    )
+            }
+            .buttonStyle(.plain)
+            .help("从队列删除")
+            .accessibilityLabel("删除第 \(index + 1) 项")
+        }
+        .padding(.horizontal, 9)
+        .frame(height: 36)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(
+            RoundedRectangle(cornerRadius: 10, style: .continuous)
+                .fill(rowFill)
+        )
+        .overlay(
+            RoundedRectangle(cornerRadius: 10, style: .continuous)
+                .stroke(
+                    isDropTarget ? BrandTheme.selectedStroke.opacity(0.8) : Color.clear,
+                    lineWidth: 1
+                )
+        )
+        .contentShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
+        .opacity(isDragging ? 0.96 : 1)
+        .onHover { hovering in
+            guard isHovering != hovering else { return }
+            isHovering = hovering
+        }
+        .animation(.easeOut(duration: 0.1), value: isHovering)
+        .animation(.easeOut(duration: 0.1), value: isDragging)
+        .animation(.easeOut(duration: 0.1), value: isDropTarget)
+        .contextMenu {
+            Button("上移", systemImage: "arrow.up", action: onMoveUp)
+                .disabled(index == 0)
+            Button("下移", systemImage: "arrow.down", action: onMoveDown)
+                .disabled(index >= count - 1)
+            Divider()
+            Button("从队列删除", systemImage: "trash", role: .destructive, action: onDelete)
+        }
+        .accessibilityAction(named: "上移", onMoveUp)
+        .accessibilityAction(named: "下移", onMoveDown)
+        .accessibilityAction(named: "删除", onDelete)
+    }
+
+    private var rowFill: Color {
+        if isDropTarget {
+            return BrandTheme.selectedStroke.opacity(0.14)
+        }
+        return Color.primary.opacity(isHovering ? 0.105 : 0.075)
     }
 
     private func truncated(_ text: String) -> String {

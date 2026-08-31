@@ -836,6 +836,51 @@ private func testPanelInteractionPolicy() {
         PanelInteractionPolicy.shouldScroll(targetID: 104, visibleIDs: [101, 102, 103]),
         "目标卡片不可见时才应触发滚动"
     )
+    expectEqual(
+        PanelInteractionPolicy.moving([1, 2, 3, 4], from: 1, over: 3),
+        [1, 3, 4, 2],
+        "队列向下拖拽应越过目标项"
+    )
+    expectEqual(
+        PanelInteractionPolicy.moving([1, 2, 3, 4], from: 3, over: 1),
+        [1, 4, 2, 3],
+        "队列向上拖拽应插入目标项之前"
+    )
+    expectEqual(
+        PanelInteractionPolicy.moving([1, 2, 3], from: 1, over: 1),
+        [1, 2, 3],
+        "队列拖到原位置不应改变顺序"
+    )
+
+    var deferredReorder = DeferredReorderState<Int>()
+    deferredReorder.begin(dragging: 1)
+    deferredReorder.hover(over: 2)
+    expectEqual(deferredReorder.draggedID, 1, "拖拽过程中只记录源项")
+    expectEqual(deferredReorder.targetID, 2, "拖拽过程中只记录目标项")
+    let proposal = deferredReorder.finish()
+    expectEqual(proposal?.sourceID, 1, "松手时生成一次源项提案")
+    expectEqual(proposal?.targetID, 2, "松手时生成一次目标项提案")
+    expect(deferredReorder.finish() == nil, "同一拖拽只能提交一次排序")
+    expectEqual(
+        PanelInteractionPolicy.dragTargetIndex(
+            sourceIndex: 0,
+            itemCount: 3,
+            translation: 22,
+            itemStride: 42
+        ),
+        1,
+        "队列拖过半行后应切换到下一项"
+    )
+    expectEqual(
+        PanelInteractionPolicy.dragTargetIndex(
+            sourceIndex: 1,
+            itemCount: 3,
+            translation: -42,
+            itemStride: 42
+        ),
+        0,
+        "队列向上拖一行应命中上一项"
+    )
 }
 
 // MARK: - 运行

@@ -3,8 +3,8 @@ import SwiftUI
 /// ClipBar 品牌色，与 App 图标（mint / cyan / ink）对齐。
 enum BrandTheme {
     static let mint = Color(red: 0x4A / 255, green: 0xDE / 255, blue: 0x80 / 255)
-    /// 设置侧栏 / 按钮用的浅绿（比主 accent 浅一档，又不过于发白）。
-    static let mintSoft = Color(red: 0xB0 / 255, green: 0xF0 / 255, blue: 0xC8 / 255)
+    /// 设置侧栏 / 主按钮填充：较深的薄荷绿，配深色文字仍保持清晰对比。
+    static let mintSoft = Color(red: 0x5F / 255, green: 0xD2 / 255, blue: 0x8A / 255)
     /// 搜索命中：暖琥珀底 + 深字，暗底上比薄荷绿更易辨认。
     static let searchHit = Color(red: 0xF5 / 255, green: 0x9E / 255, blue: 0x0B / 255)
     static let cyan = Color(red: 0x22 / 255, green: 0xD3 / 255, blue: 0xEE / 255)
@@ -16,8 +16,8 @@ enum BrandTheme {
     static let accentSoft = mintSoft
 
     static let panelStroke = Color.white.opacity(0.22)
-    /// 选中描边：更实、更亮，暗底上更易辨认。
-    static let selectedStroke = Color(red: 0x6E / 255, green: 0xF7 / 255, blue: 0xA0 / 255)
+    /// 卡片荧光标记：比品牌薄荷绿更深，用于选中描边、类型与置顶标识。
+    static let selectedStroke = Color(red: 0x20 / 255, green: 0xC7 / 255, blue: 0x68 / 255)
 
     static let cardFill = Color.primary.opacity(0.08)
     static let cardFillHover = Color.primary.opacity(0.12)

@@ -10,7 +10,9 @@ struct SnapshotBarView: View {
     @State private var showAddLabel = false
     @State private var newLabelName = ""
     @State private var newLabelColor = "blue"
-    @State private var draggingLabelID: Int64?
+    @State private var labelReorderState = DeferredReorderState<Int64>()
+    @State private var labelDragOffset = CGSize.zero
+    @State private var labelFrames: [Int64: CGRect] = [:]
     @State private var editingLabel: ClipboardLabel?
     @State private var editLabelName = ""
     @State private var editLabelColor = "blue"
@@ -24,6 +26,7 @@ struct SnapshotBarView: View {
     /// 与 BottomPanelController 保持一致。
     static let panelHeight: CGFloat = 318
     private static let scrollCoordinateSpace = "clipbar.snapshot-scroll"
+    private static let labelCoordinateSpace = "clipbar.label-scroll"
 
     var body: some View {
         snapshotContent
@@ -139,6 +142,82 @@ struct SnapshotBarView: View {
         }
     }
 
+    private func labelDragGesture(for label: ClipboardLabel) -> some Gesture {
+        LongPressGesture(minimumDuration: 0.16, maximumDistance: 6)
+            .sequenced(
+                before: DragGesture(
+                    minimumDistance: 0,
+                    coordinateSpace: .named(Self.labelCoordinateSpace)
+                )
+            )
+            .onChanged { phase in
+                switch phase {
+                case .first(true):
+                    if labelReorderState.draggedID == nil {
+                        labelReorderState.begin(dragging: label.id)
+                        labelDragOffset = .zero
+                    }
+                case .second(true, let drag?):
+                    if labelReorderState.draggedID == nil {
+                        labelReorderState.begin(dragging: label.id)
+                    }
+                    labelDragOffset = drag.translation
+                    updateLabelDropTarget(
+                        sourceID: label.id,
+                        horizontalTranslation: drag.translation.width
+                    )
+                default:
+                    break
+                }
+            }
+            .onEnded { phase in
+                guard case .second(true, _) = phase,
+                      let proposal = labelReorderState.finish() else {
+                    labelReorderState.reset()
+                    labelDragOffset = .zero
+                    return
+                }
+
+                withAnimation(.snappy(duration: 0.16, extraBounce: 0)) {
+                    labelDragOffset = .zero
+                    viewModel.moveLabel(
+                        draggingID: proposal.sourceID,
+                        before: proposal.targetID
+                    )
+                }
+                viewModel.commitLabelOrder()
+            }
+    }
+
+    private func updateLabelDropTarget(sourceID: Int64, horizontalTranslation: CGFloat) {
+        guard let sourceFrame = labelFrames[sourceID] else { return }
+        guard abs(horizontalTranslation) >= 8 else {
+            labelReorderState.hover(over: sourceID)
+            return
+        }
+
+        let draggedCenterX = sourceFrame.midX + horizontalTranslation
+        let candidates = viewModel.labels.compactMap { label -> (Int64, CGRect)? in
+            guard label.id != sourceID, let frame = labelFrames[label.id] else { return nil }
+            return (label.id, frame)
+        }
+        guard !candidates.isEmpty else {
+            labelReorderState.hover(over: sourceID)
+            return
+        }
+
+        if let rightmost = candidates.max(by: { $0.1.maxX < $1.1.maxX }),
+           draggedCenterX > rightmost.1.maxX {
+            labelReorderState.hover(over: nil)
+            return
+        }
+
+        let nearest = candidates.min {
+            abs($0.1.midX - draggedCenterX) < abs($1.1.midX - draggedCenterX)
+        }
+        labelReorderState.hover(over: nearest?.0)
+    }
+
     // MARK: - 顶栏（品牌 + 筛选 + 搜索）
 
     private var chromeBar: some View {
@@ -173,11 +252,11 @@ struct SnapshotBarView: View {
                     }
 
                     ForEach(viewModel.labels) { label in
-                        FilterChip(
-                            title: label.name,
+                        LabelFilterChip(
+                            label: label,
                             isSelected: viewModel.filterLabelID == label.id,
-                            tint: LabelColor.color(for: label.color),
-                            style: .labelDot
+                            isDropTarget: labelReorderState.targetID == label.id
+                                && labelReorderState.draggedID != label.id
                         ) {
                             if viewModel.filterLabelID == label.id {
                                 viewModel.setLabelFilter(nil)
@@ -186,28 +265,41 @@ struct SnapshotBarView: View {
                                 viewModel.setLabelFilter(label.id)
                             }
                         }
-                        .opacity(draggingLabelID == label.id ? 0.4 : 1)
-                        .onDrag {
-                            draggingLabelID = label.id
-                            return NSItemProvider(object: NSString(string: "label:\(label.id)"))
+                        .opacity(labelReorderState.draggedID == label.id ? 0.96 : 1)
+                        .background {
+                            GeometryReader { geometry in
+                                Color.clear.preference(
+                                    key: LabelChipFramePreferenceKey.self,
+                                    value: [
+                                        label.id: geometry.frame(in: .named(Self.labelCoordinateSpace))
+                                    ]
+                                )
+                            }
                         }
-                        .onDrop(
-                            of: [.text],
-                            delegate: LabelReorderDropDelegate(
-                                targetID: label.id,
-                                draggingID: $draggingLabelID,
-                                onHover: { dragging, target in
-                                    withAnimation(.interactiveSpring(response: 0.22, dampingFraction: 0.86)) {
-                                        viewModel.moveLabel(draggingID: dragging, before: target)
-                                    }
-                                },
-                                onDrop: {
-                                    viewModel.commitLabelOrder()
-                                    draggingLabelID = nil
-                                }
-                            )
+                        .offset(
+                            labelReorderState.draggedID == label.id
+                                ? labelDragOffset
+                                : .zero
                         )
+                        .scaleEffect(labelReorderState.draggedID == label.id ? 1.035 : 1)
+                        .shadow(
+                            color: Color.black.opacity(labelReorderState.draggedID == label.id ? 0.2 : 0),
+                            radius: 10,
+                            y: 4
+                        )
+                        .zIndex(labelReorderState.draggedID == label.id ? 10 : 0)
+                        .simultaneousGesture(labelDragGesture(for: label))
+                        .help("点击筛选；长按并拖拽调整顺序")
                         .contextMenu {
+                            Button("左移", systemImage: "arrow.left") {
+                                viewModel.moveLabel(id: label.id, offset: -1)
+                            }
+                            .disabled(label.id == viewModel.labels.first?.id)
+                            Button("右移", systemImage: "arrow.right") {
+                                viewModel.moveLabel(id: label.id, offset: 1)
+                            }
+                            .disabled(label.id == viewModel.labels.last?.id)
+                            Divider()
                             Button("编辑…") {
                                 editingLabel = label
                                 editLabelName = label.name
@@ -235,23 +327,12 @@ struct SnapshotBarView: View {
                     .popover(isPresented: $showAddLabel, arrowEdge: .bottom) {
                         addLabelPopover
                     }
-                    .onDrop(
-                        of: [.text],
-                        delegate: LabelReorderDropDelegate(
-                            targetID: nil,
-                            draggingID: $draggingLabelID,
-                            onHover: { dragging, target in
-                                withAnimation(.interactiveSpring(response: 0.22, dampingFraction: 0.86)) {
-                                    viewModel.moveLabel(draggingID: dragging, before: target)
-                                }
-                            },
-                            onDrop: {
-                                viewModel.commitLabelOrder()
-                                draggingLabelID = nil
-                            }
-                        )
-                    )
                 }
+            }
+            .coordinateSpace(name: Self.labelCoordinateSpace)
+            .onPreferenceChange(LabelChipFramePreferenceKey.self) { frames in
+                guard labelReorderState.draggedID == nil, labelFrames != frames else { return }
+                labelFrames = frames
             }
 
             Text("\(viewModel.libraryCount)")
@@ -629,6 +710,7 @@ private struct FilterChip: View {
     let isSelected: Bool
     var tint: Color = BrandTheme.accent
     var style: Style = .brandFill
+    var isDropTarget = false
     let action: () -> Void
 
     var body: some View {
@@ -654,11 +736,12 @@ private struct FilterChip: View {
             )
             .overlay(
                 Capsule(style: .continuous)
-                    .stroke(stroke, lineWidth: isSelected && style == .labelDot ? 1.25 : 0)
+                    .stroke(stroke, lineWidth: isDropTarget ? 1.5 : (isSelected && style == .labelDot ? 1.25 : 0))
             )
         }
         .buttonStyle(.plain)
         .animation(.easeOut(duration: 0.12), value: isSelected)
+        .animation(.easeOut(duration: 0.1), value: isDropTarget)
     }
 
     private var foreground: Color {
@@ -675,16 +758,73 @@ private struct FilterChip: View {
         case .brandFill:
             return isSelected ? BrandTheme.accent.opacity(0.92) : Color.primary.opacity(0.10)
         case .labelDot:
+            if isDropTarget {
+                return BrandTheme.selectedStroke.opacity(0.13)
+            }
             return isSelected ? Color.primary.opacity(0.12) : Color.primary.opacity(0.08)
         }
     }
 
     private var stroke: Color {
-        style == .labelDot && isSelected ? BrandTheme.selectedStroke : .clear
+        style == .labelDot && (isSelected || isDropTarget) ? BrandTheme.selectedStroke : .clear
+    }
+}
+
+private struct LabelFilterChip: View {
+    let label: ClipboardLabel
+    let isSelected: Bool
+    let isDropTarget: Bool
+    let action: () -> Void
+
+    var body: some View {
+        HStack(spacing: 5) {
+            Circle()
+                .fill(LabelColor.color(for: label.color))
+                .frame(width: isSelected ? 7 : 6, height: isSelected ? 7 : 6)
+            Text(label.name)
+                .font(.system(size: 11, weight: isSelected ? .semibold : .medium))
+        }
+        .foregroundStyle(isSelected ? Color.primary.opacity(0.92) : Color.secondary)
+        .padding(.horizontal, 11)
+        .padding(.vertical, 5)
+        .background(
+            Capsule(style: .continuous)
+                .fill(fill)
+        )
+        .overlay(
+            Capsule(style: .continuous)
+                .stroke(
+                    isSelected || isDropTarget ? BrandTheme.selectedStroke : .clear,
+                    lineWidth: isDropTarget ? 1.5 : (isSelected ? 1.25 : 0)
+                )
+        )
+        .contentShape(Capsule(style: .continuous))
+        .onTapGesture(perform: action)
+        .accessibilityElement(children: .combine)
+        .accessibilityLabel(label.name)
+        .accessibilityAddTraits(isSelected ? [.isButton, .isSelected] : .isButton)
+        .accessibilityAction(named: Text("筛选标签"), action)
+        .animation(.easeOut(duration: 0.12), value: isSelected)
+        .animation(.easeOut(duration: 0.1), value: isDropTarget)
+    }
+
+    private var fill: Color {
+        if isDropTarget {
+            return BrandTheme.selectedStroke.opacity(0.13)
+        }
+        return isSelected ? Color.primary.opacity(0.12) : Color.primary.opacity(0.08)
     }
 }
 
 // MARK: - 快照卡片
+
+private struct LabelChipFramePreferenceKey: PreferenceKey {
+    static let defaultValue: [Int64: CGRect] = [:]
+
+    static func reduce(value: inout [Int64: CGRect], nextValue: () -> [Int64: CGRect]) {
+        value.merge(nextValue(), uniquingKeysWith: { _, new in new })
+    }
+}
 
 private struct SnapshotCardFramePreferenceKey: PreferenceKey {
     static let defaultValue: [Int64: CGRect] = [:]
@@ -989,35 +1129,6 @@ private struct CardIconButton: View {
         .buttonStyle(.plain)
         .help(help)
     }
-}
-
-/// 标签横向重排：悬停时即时换位，支持左右双向；松手后落库。
-private struct LabelReorderDropDelegate: DropDelegate {
-    let targetID: Int64?
-    @Binding var draggingID: Int64?
-    let onHover: (Int64, Int64?) -> Void
-    let onDrop: () -> Void
-
-    func validateDrop(info: DropInfo) -> Bool {
-        draggingID != nil
-    }
-
-    func dropEntered(info: DropInfo) {
-        guard let draggingID, draggingID != targetID else { return }
-        onHover(draggingID, targetID)
-    }
-
-    func dropUpdated(info: DropInfo) -> DropProposal? {
-        DropProposal(operation: .move)
-    }
-
-    func performDrop(info: DropInfo) -> Bool {
-        guard draggingID != nil else { return false }
-        onDrop()
-        return true
-    }
-
-    func dropExited(info: DropInfo) {}
 }
 
 private struct SnapshotThumbnail: View {
