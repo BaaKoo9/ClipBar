@@ -25,6 +25,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         registerHotKeys()
         DebugLog.write("启动：快捷键就绪，耗时 \(LaunchClock.elapsedMilliseconds)ms")
 
+        UpdateChecker.reconcilePersistentState()
         setupStatusItem()
         ensureKeepAlivePanel()
         ClipboardMonitor.shared.start()

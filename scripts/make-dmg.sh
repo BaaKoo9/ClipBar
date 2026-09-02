@@ -8,6 +8,7 @@ APP_NAME="ClipBar"
 VERSION=$(/usr/libexec/PlistBuddy -c "Print :CFBundleShortVersionString" "$ROOT/Resources/Info.plist")
 VOL_NAME="ClipBar"
 DMG_PATH="$ROOT/dist/ClipBar-${VERSION}.dmg"
+CHECKSUM_PATH="$DMG_PATH.sha256"
 STAGE="$ROOT/dist/dmg-stage"
 RW_DMG="$ROOT/dist/.ClipBar-rw.dmg"
 MOUNT="/Volumes/${VOL_NAME}"
@@ -53,12 +54,17 @@ APPLESCRIPT
 sync
 hdiutil detach "$DEVICE" >/dev/null || hdiutil detach "$MOUNT" -force >/dev/null || true
 hdiutil convert "$RW_DMG" -format UDZO -imagekey zlib-level=9 -o "$DMG_PATH" >/dev/null
+(
+    cd "$ROOT/dist"
+    shasum -a 256 "ClipBar-$VERSION.dmg" > "ClipBar-$VERSION.dmg.sha256"
+)
 rm -rf "$STAGE" "$RW_DMG"
 if [ -d "$ROOT/dist/$APP_NAME.app" ]; then
     find "$ROOT/dist/$APP_NAME.app" -depth -delete
 fi
 
 # 清理旧产物
-find "$ROOT/dist" -maxdepth 1 -type f \( -name 'ClipBar-*.dmg' -o -name 'Clipboard-Manager-*.dmg' \) ! -name "ClipBar-${VERSION}.dmg" -delete 2>/dev/null || true
+find "$ROOT/dist" -maxdepth 1 -type f \( -name 'ClipBar-*.dmg' -o -name 'ClipBar-*.dmg.sha256' -o -name 'Clipboard-Manager-*.dmg' \) ! -name "ClipBar-${VERSION}.dmg" ! -name "ClipBar-${VERSION}.dmg.sha256" -delete 2>/dev/null || true
 
 echo "DMG: $DMG_PATH"
+echo "SHA-256: $CHECKSUM_PATH"

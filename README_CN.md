@@ -123,7 +123,7 @@ tccutil reset ListenEvent com.huxiaolong.ClipBar
 ./scripts/create-local-signing-identity.sh  # 每台构建 Mac 首次运行
 ./scripts/build-app.sh          # 生成 dist/ClipBar.app
 ./scripts/make-pkg.sh           # 生成 .pkg 与 .pkg.sha256
-./scripts/make-dmg.sh           # 生成 dist/ClipBar-x.y.z.dmg
+./scripts/make-dmg.sh           # 生成 .dmg 与 .dmg.sha256
 ./scripts/run-tests.sh          # 核心单元测试
 ```
 

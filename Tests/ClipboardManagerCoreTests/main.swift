@@ -141,6 +141,61 @@ private func testUpdatePackageVerifier() throws {
     )
 }
 
+private func testUpdatePolicy() {
+    expect(
+        UpdatePolicy.shouldSurfaceUpdate(
+            availableVersion: "1.0.11",
+            dismissedVersion: nil,
+            currentVersion: "1.0.10"
+        ),
+        "仅远程版本较新时应显示更新提示"
+    )
+    expect(
+        !UpdatePolicy.shouldSurfaceUpdate(
+            availableVersion: "1.0.10",
+            dismissedVersion: nil,
+            currentVersion: "1.0.10"
+        ),
+        "安装完成后同版本更新提示应自动失效"
+    )
+    expect(
+        !UpdatePolicy.shouldSurfaceUpdate(
+            availableVersion: "1.0.9",
+            dismissedVersion: nil,
+            currentVersion: "1.0.10"
+        ),
+        "旧版本更新提示不应残留"
+    )
+    expect(
+        !UpdatePolicy.shouldSurfaceUpdate(
+            availableVersion: "1.0.11",
+            dismissedVersion: "1.0.11",
+            currentVersion: "1.0.10"
+        ),
+        "已稍后处理的版本不应显示更新提示"
+    )
+
+    let assets = [
+        "ClipBar-1.0.11.pkg",
+        "ClipBar-1.0.11.pkg.sha256",
+        "ClipBar-1.0.11.dmg",
+        "ClipBar-1.0.11.dmg.sha256",
+    ]
+    expectEqual(
+        UpdatePolicy.preferredArtifactName(from: assets, version: "1.0.11"),
+        "ClipBar-1.0.11.dmg",
+        "自动更新应优先选择带校验文件的 DMG"
+    )
+    expectEqual(
+        UpdatePolicy.preferredArtifactName(
+            from: assets.filter { !$0.hasSuffix(".dmg.sha256") },
+            version: "1.0.11"
+        ),
+        "ClipBar-1.0.11.pkg",
+        "DMG 缺少校验文件时应安全回退到 pkg"
+    )
+}
+
 private func testPaginationAndHistoryCounts() throws {
     let tempDir = FileManager.default.temporaryDirectory
         .appendingPathComponent("PaginationTests-\(UUID().uuidString)", isDirectory: true)
@@ -883,6 +938,24 @@ private func testPanelInteractionPolicy() {
     )
 }
 
+private func testPasteHandoffPolicy() {
+    expectEqual(
+        PasteHandoffPolicy.settleDelay(hasCapturedFocus: true, didRestoreFocus: true),
+        0.012,
+        "已恢复原焦点时应使用最短稳定期"
+    )
+    expectEqual(
+        PasteHandoffPolicy.settleDelay(hasCapturedFocus: true, didRestoreFocus: false),
+        0.020,
+        "已捕获输入框但设焦失败时不应误走缺焦点慢路径"
+    )
+    expectEqual(
+        PasteHandoffPolicy.settleDelay(hasCapturedFocus: false, didRestoreFocus: false),
+        0.045,
+        "完全未捕获输入框时才保留焦点恢复兜底"
+    )
+}
+
 // MARK: - 运行
 
 do {
@@ -890,6 +963,7 @@ do {
     try testDuplicateRefreshesInsteadOfInserting()
     try testSearchMatchesText()
     try testUpdatePackageVerifier()
+    testUpdatePolicy()
     try testPaginationAndHistoryCounts()
     try testPinnedItemSurvivesLimitCleanup()
     try testPinnedItemsSortFirst()
@@ -902,6 +976,7 @@ do {
     try testDeleteRecentImageFilesAfterImageUpsert()
     try testLabelsAssignAndFilter()
     testPanelInteractionPolicy()
+    testPasteHandoffPolicy()
     if shouldRunSystemIntegrationTests {
         testPasteText()
         try testPasteFile()

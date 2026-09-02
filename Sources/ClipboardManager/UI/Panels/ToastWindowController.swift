@@ -13,6 +13,7 @@ final class ToastWindowController {
     private var queueWindow: NSPanel?
     private var queueHosting: NSHostingController<QueueListView>?
     private var queueHideTask: DispatchWorkItem?
+    private var queueWindowDragStart: (mouseLocation: NSPoint, windowOrigin: NSPoint)?
 
     private init() {}
 
@@ -102,20 +103,28 @@ final class ToastWindowController {
         queueHideTask?.cancel()
 
         let height = Self.queueHeight(forCount: items.count)
-        let screen = ScreenHelper.activeScreen
+        let screen = queueWindow?.screen ?? ScreenHelper.activeScreen
         let visible = screen.visibleFrame
-        let frame = NSRect(
+        let defaultFrame = NSRect(
             x: visible.maxX - Self.queueWidth - 20,
             y: visible.maxY - height - 20,
             width: Self.queueWidth,
             height: height
         )
-        let listView = QueueListView(viewModel: viewModel)
+        let listView = QueueListView(viewModel: viewModel) { [weak self] ended in
+            self?.moveQueueWindow(ended: ended)
+        }
 
         if let queueWindow, let queueHosting {
+            let preservedFrame = NSRect(
+                x: min(max(queueWindow.frame.minX, visible.minX), visible.maxX - Self.queueWidth),
+                y: min(max(queueWindow.frame.maxY - height, visible.minY), visible.maxY - height),
+                width: Self.queueWidth,
+                height: height
+            )
             let shouldAnimateResize = queueWindow.isVisible
-                && abs(queueWindow.frame.height - frame.height) > 0.5
-            queueWindow.setFrame(frame, display: true, animate: shouldAnimateResize)
+                && abs(queueWindow.frame.height - preservedFrame.height) > 0.5
+            queueWindow.setFrame(preservedFrame, display: true, animate: shouldAnimateResize)
             queueHosting.view.needsLayout = true
             queueHosting.view.layoutSubtreeIfNeeded()
             if !queueWindow.isVisible {
@@ -143,9 +152,9 @@ final class ToastWindowController {
         panel.level = .floating
         panel.collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary]
         panel.isReleasedWhenClosed = false
-        panel.setFrame(frame, display: true)
+        panel.setFrame(defaultFrame, display: true)
         // 首帧强制布局：避免 Lazy/Hosting 在 alpha=0 时未测量导致「空壳」
-        hosting.view.setFrameSize(frame.size)
+        hosting.view.setFrameSize(defaultFrame.size)
         hosting.view.needsLayout = true
         hosting.view.layoutSubtreeIfNeeded()
 
@@ -166,6 +175,7 @@ final class ToastWindowController {
             queueWindow?.orderOut(nil)
             self.queueWindow = nil
             self.queueHosting = nil
+            queueWindowDragStart = nil
             return
         }
         let windowID = ObjectIdentifier(queueWindow)
@@ -178,7 +188,35 @@ final class ToastWindowController {
                 self?.queueWindow?.orderOut(nil)
                 self?.queueWindow = nil
                 self?.queueHosting = nil
+                self?.queueWindowDragStart = nil
             }
+        }
+    }
+
+    private func moveQueueWindow(ended: Bool) {
+        guard let queueWindow else { return }
+        let mouseLocation = NSEvent.mouseLocation
+        if queueWindowDragStart == nil {
+            queueWindowDragStart = (
+                mouseLocation: mouseLocation,
+                windowOrigin: queueWindow.frame.origin
+            )
+        }
+        guard let dragStart = queueWindowDragStart else { return }
+
+        let visible = queueWindow.screen?.visibleFrame ?? ScreenHelper.activeScreen.visibleFrame
+        let proposed = NSPoint(
+            x: dragStart.windowOrigin.x + mouseLocation.x - dragStart.mouseLocation.x,
+            y: dragStart.windowOrigin.y + mouseLocation.y - dragStart.mouseLocation.y
+        )
+        let constrained = NSPoint(
+            x: min(max(proposed.x, visible.minX), visible.maxX - queueWindow.frame.width),
+            y: min(max(proposed.y, visible.minY), visible.maxY - queueWindow.frame.height)
+        )
+        queueWindow.setFrameOrigin(constrained)
+        if ended {
+            queueWindowDragStart = nil
+            DebugLog.write("队列窗口：移动到 \(NSStringFromPoint(constrained))")
         }
     }
 }
@@ -234,6 +272,7 @@ private struct ToastView: View {
 
 private struct QueueListView: View {
     @ObservedObject var viewModel: PanelViewModel
+    let onWindowDrag: (Bool) -> Void
     @State private var reorderState = DeferredReorderState<UUID>()
     @State private var queueDragOffset = CGSize.zero
 
@@ -319,30 +358,39 @@ private struct QueueListView: View {
 
     private var queueHeader: some View {
         HStack(alignment: .center, spacing: 8) {
-            RoundedRectangle(cornerRadius: 5, style: .continuous)
-                .fill(
-                    LinearGradient(
-                        colors: [BrandTheme.mint, BrandTheme.cyan],
-                        startPoint: .topLeading,
-                        endPoint: .bottomTrailing
+            HStack(alignment: .center, spacing: 8) {
+                RoundedRectangle(cornerRadius: 5, style: .continuous)
+                    .fill(
+                        LinearGradient(
+                            colors: [BrandTheme.mint, BrandTheme.cyan],
+                            startPoint: .topLeading,
+                            endPoint: .bottomTrailing
+                        )
                     )
-                )
-                .frame(width: 18, height: 18)
-                .overlay(
-                    Image(systemName: "list.number")
-                        .font(.system(size: 9, weight: .bold))
-                        .foregroundStyle(BrandTheme.inkTop)
-                )
+                    .frame(width: 18, height: 18)
+                    .overlay(
+                        Image(systemName: "list.number")
+                            .font(.system(size: 9, weight: .bold))
+                            .foregroundStyle(BrandTheme.inkTop)
+                    )
 
-            VStack(alignment: .leading, spacing: 1) {
-                Text("QUEUE")
-                    .font(.system(size: 9, weight: .semibold))
-                    .foregroundStyle(.secondary)
-                    .tracking(0.8)
-                Text("\(items.count) 项")
-                    .font(.system(size: 13.5, weight: .semibold))
+                VStack(alignment: .leading, spacing: 1) {
+                    Text("QUEUE")
+                        .font(.system(size: 9, weight: .semibold))
+                        .foregroundStyle(.secondary)
+                        .tracking(0.8)
+                    Text("\(items.count) 项")
+                        .font(.system(size: 13.5, weight: .semibold))
+                }
             }
             .frame(maxWidth: .infinity, alignment: .leading)
+            .contentShape(Rectangle())
+            .gesture(
+                DragGesture(minimumDistance: 2)
+                    .onChanged { _ in onWindowDrag(false) }
+                    .onEnded { _ in onWindowDrag(true) }
+            )
+            .help("拖动队列窗口")
 
             QueueHeaderButton(title: "倒序", systemImage: "arrow.up.arrow.down") {
                 withAnimation(.snappy(duration: 0.18, extraBounce: 0)) {

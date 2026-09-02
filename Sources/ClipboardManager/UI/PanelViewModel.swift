@@ -51,7 +51,7 @@ final class PanelViewModel: ObservableObject {
     }
 
     private var loaded = false
-    private var targetPID: pid_t?
+    private var pasteTarget: PasteTarget?
     private var searchWorkItem: DispatchWorkItem?
     private var filterWorkItem: DispatchWorkItem?
     private let enqueueQueue = DispatchQueue(label: "com.huxiaolong.clipboard.enqueue")
@@ -156,10 +156,10 @@ final class PanelViewModel: ObservableObject {
     }
 
     /// 面板显示前调用：记住前台 App，并同步重置筛选/选中，保证首帧内容已就绪。
-    func panelWillOpen(from pid: pid_t?) {
+    func panelWillOpen(from target: PasteTarget?) {
         isPanelOpen = true
         panelFocusGeneration &+= 1
-        targetPID = pid
+        pasteTarget = target
         suppressListAnimation = true
         filterWorkItem?.cancel()
         searchWorkItem?.cancel()
@@ -564,14 +564,14 @@ final class PanelViewModel: ObservableObject {
         requestClose(animated: !shouldPaste)
 
         if shouldPaste {
-            let pid = targetPID
+            let target = pasteTarget
             if deferFocusHandoff {
                 // 等鼠标抬起与面板 orderOut 落定后再交还焦点，避免点击路径明显慢于回车
                 DispatchQueue.main.async { [weak self] in
-                    self?.performPasteHandoff(pid: pid, source: source, writeMilliseconds: writeMs)
+                    self?.performPasteHandoff(target: target, source: source, writeMilliseconds: writeMs)
                 }
             } else {
-                performPasteHandoff(pid: pid, source: source, writeMilliseconds: writeMs)
+                performPasteHandoff(target: target, source: source, writeMilliseconds: writeMs)
             }
         } else if !PasteService.hasAccessibilityPermission {
             DebugLog.write("粘贴：无辅助功能权限，仅写回剪贴板 write=\(writeMs)ms")
@@ -585,11 +585,11 @@ final class PanelViewModel: ObservableObject {
         }
     }
 
-    private func performPasteHandoff(pid: pid_t?, source: String, writeMilliseconds: Int) {
+    private func performPasteHandoff(target: PasteTarget?, source: String, writeMilliseconds: Int) {
         if NSApp.isActive {
             NSApp.deactivate()
         }
-        PasteService.activateAndPaste(pid: pid)
+        PasteService.activateAndPaste(target: target)
         DebugLog.write("粘贴路径 source=\(source) write=\(writeMilliseconds)ms → 注入")
     }
 

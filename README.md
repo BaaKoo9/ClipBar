@@ -123,7 +123,7 @@ macOS 14+ with Xcode Command Line Tools (full Xcode not required):
 ./scripts/create-local-signing-identity.sh  # once per build Mac
 ./scripts/build-app.sh          # dist/ClipBar.app
 ./scripts/make-pkg.sh           # dist/ClipBar-x.y.z.pkg + .pkg.sha256
-./scripts/make-dmg.sh           # dist/ClipBar-x.y.z.dmg
+./scripts/make-dmg.sh           # dist/ClipBar-x.y.z.dmg + .dmg.sha256
 ./scripts/run-tests.sh          # core unit tests
 ```
 

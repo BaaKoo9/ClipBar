@@ -72,7 +72,7 @@ productbuild \
     --package-path "$ROOT/dist" \
     "$PKG_PATH" >/dev/null
 
-# 自动更新从 GitHub 直连读取该校验文件，再校验镜像下载的整个 pkg。
+# 旧版 Release 或 DMG 校验缺失时，自动更新仍可用该文件安全回退到 pkg。
 # 哈希覆盖安装脚本和 App 载荷，因此签名证书换代不会让更新器误判失败。
 (
     cd "$ROOT/dist"
@@ -85,7 +85,7 @@ if [ -d "$ROOT/dist/$APP_NAME.app" ]; then
 fi
 
 # dist 只保留最新产物：清理旧版 pkg/dmg（本次留下当前版本 pkg）
-find "$ROOT/dist" -maxdepth 1 -type f \( -name 'ClipBar-*.pkg' -o -name 'ClipBar-*.pkg.sha256' -o -name 'ClipBar-*.dmg' -o -name 'Clipboard-Manager-*.pkg' -o -name 'Clipboard-Manager-*.dmg' -o -name 'Clipboard-Manager.dmg' \) ! -name "ClipBar-${VERSION}.pkg" ! -name "ClipBar-${VERSION}.pkg.sha256" -delete 2>/dev/null || true
+find "$ROOT/dist" -maxdepth 1 -type f \( -name 'ClipBar-*.pkg' -o -name 'ClipBar-*.pkg.sha256' -o -name 'ClipBar-*.dmg' -o -name 'ClipBar-*.dmg.sha256' -o -name 'Clipboard-Manager-*.pkg' -o -name 'Clipboard-Manager-*.dmg' -o -name 'Clipboard-Manager.dmg' \) ! -name "ClipBar-${VERSION}.pkg" ! -name "ClipBar-${VERSION}.pkg.sha256" -delete 2>/dev/null || true
 
 echo "PKG 已生成: $PKG_PATH"
 echo "SHA-256: $CHECKSUM_PATH"

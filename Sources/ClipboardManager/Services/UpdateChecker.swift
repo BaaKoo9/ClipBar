@@ -1,8 +1,9 @@
 import AppKit
 import ClipboardManagerCore
 import Foundation
+import SwiftUI
 
-/// 检查 GitHub Release，优先镜像下载 pkg，校验后打开系统安装器。
+/// 检查 GitHub Release，优先下载 DMG，校验后自动覆盖并重新启动。
 @MainActor
 enum UpdateChecker {
     private static let owner = "BaaKoo9"
@@ -11,6 +12,7 @@ enum UpdateChecker {
     private static let apiURL = URL(string: "https://api.github.com/repos/\(owner)/\(repo)/releases/latest")!
     private static let userAgent = "ClipBar/\(currentVersion) (+https://github.com/\(owner)/\(repo))"
     private static var isOperationInFlight = false
+    private static let installedAppURL = URL(fileURLWithPath: "/Applications/ClipBar.app", isDirectory: true)
 
     /// 国内直连 github.com 常超时；镜像实测可用（ghfast ~4s 下完 2.3MB）。
     private static let downloadMirrors = [
@@ -22,10 +24,22 @@ enum UpdateChecker {
         let tagName: String
         let htmlURL: String
         let body: String?
-        let pkgName: String
+        let artifactName: String
+        let artifactKind: ArtifactKind
         let expectedSize: Int64?
         let expectedSHA256: String?
         let downloadURLs: [URL]
+    }
+
+    private enum ArtifactKind {
+        case dmg
+        case pkg
+    }
+
+    private struct InstallStatus: Decodable {
+        let succeeded: Bool
+        let version: String
+        let message: String
     }
 
     private struct APIRelease: Decodable {
@@ -60,7 +74,41 @@ enum UpdateChecker {
         Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "0"
     }
 
-    /// `interactive == false` 时静默写入设置；`true` 时走进度条下载并自动打开安装器。
+    static func reconcilePersistentState() {
+        let settings = AppSettings.shared
+        if let available = settings.availableUpdateVersion,
+           UpdatePolicy.compareVersion(available, currentVersion) <= 0 {
+            settings.availableUpdateVersion = nil
+            if let dismissed = settings.dismissedUpdateVersion,
+               UpdatePolicy.compareVersion(dismissed, currentVersion) <= 0 {
+                settings.dismissedUpdateVersion = nil
+            }
+            DebugLog.write("更新状态清理：available=\(available) current=\(currentVersion)")
+        }
+
+        let statusURL = updateStatusURL
+        guard let data = try? Data(contentsOf: statusURL),
+              let status = try? JSONDecoder().decode(InstallStatus.self, from: data) else {
+            return
+        }
+        try? FileManager.default.removeItem(at: statusURL)
+        if status.succeeded {
+            settings.availableUpdateVersion = nil
+            settings.dismissedUpdateVersion = nil
+            DebugLog.write("自动更新成功：\(status.version) \(status.message)")
+        } else {
+            DebugLog.write("自动更新失败：\(status.message)")
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.8) {
+                presentAlert(
+                    title: "自动更新未完成",
+                    message: status.message + "\n\n旧版本已保留，可重新检查更新。",
+                    style: .warning
+                )
+            }
+        }
+    }
+
+    /// `interactive == false` 时静默写入设置；`true` 时确认版本并进入可见更新流程。
     static func checkForUpdates(interactive: Bool = true) {
         let progress = UpdateProgressModel.shared
         guard !isOperationInFlight else {
@@ -84,7 +132,7 @@ enum UpdateChecker {
                 AppSettings.shared.lastUpdateCheckAt = Date().timeIntervalSince1970
                 NotificationCenter.default.post(name: .clipboardUpdateAvailable, object: nil)
                 DebugLog.write(
-                    "检查更新：远程 \(remote) 本地 \(local) pkg=\(release.pkgName) " +
+                    "检查更新：远程 \(remote) 本地 \(local) artifact=\(release.artifactName) " +
                     "urls=\(release.downloadURLs.count) size=\(release.expectedSize ?? -1)"
                 )
 
@@ -111,7 +159,7 @@ enum UpdateChecker {
                 }
 
                 guard release.expectedSHA256 != nil else {
-                    let message = "该版本缺少 SHA-256 校验文件。为避免安装来源不明的包，请前往 Releases 手动下载。"
+                    let message = "该版本缺少与安装文件同名的 SHA-256 校验文件。为避免安装来源不明的包，请前往 Releases 手动下载。"
                     progress.phase = .failed(message)
                     progress.statusText = "自动更新校验不可用"
                     presentAlert(
@@ -147,6 +195,8 @@ enum UpdateChecker {
                 DebugLog.write("检查更新失败：\(error.localizedDescription)")
                 if interactive {
                     UpdateProgressModel.shared.phase = .failed(error.localizedDescription)
+                    UpdateProgressModel.shared.statusText = "更新失败"
+                    UpdateProgressWindowController.shared.hide()
                     presentAlert(
                         title: "更新失败",
                         message: error.localizedDescription + "\n\n可点击「立即检查更新」重试。",
@@ -162,25 +212,31 @@ enum UpdateChecker {
         progress.phase = .downloading
         progress.fractionCompleted = 0
         progress.statusText = "正在下载 \(remote)…"
+        UpdateProgressWindowController.shared.show()
 
-        let pkgURL = try await downloadWithProgress(
+        let artifactURL = try await downloadWithProgress(
             urls: release.downloadURLs,
-            named: release.pkgName,
+            named: release.artifactName,
+            kind: release.artifactKind,
             expectedSize: release.expectedSize,
             expectedSHA256: release.expectedSHA256
         )
-        DebugLog.write("检查更新：已下载 \(pkgURL.path) (\(fileSize(pkgURL)) bytes)")
+        DebugLog.write("检查更新：已下载 \(artifactURL.path) (\(fileSize(artifactURL)) bytes)")
 
         progress.phase = .installing
         progress.fractionCompleted = 1
-        progress.statusText = "正在打开系统安装器…"
-
-        // 用户真正开始安装时 preinstall 会退出本进程；仅打开安装器时保持运行，
-        // 这样用户取消安装后 ClipBar 不会无故消失。
-        guard NSWorkspace.shared.open(pkgURL) else {
-            throw UpdateError.openInstallerFailed
+        switch release.artifactKind {
+        case .dmg:
+            progress.statusText = "正在安装，ClipBar 即将重新启动…"
+            try launchUpdater(dmgURL: artifactURL, version: remote)
+        case .pkg:
+            progress.statusText = "正在打开系统安装器…"
+            guard NSWorkspace.shared.open(artifactURL) else {
+                throw UpdateError.openInstallerFailed
+            }
+            UpdateProgressWindowController.shared.hide()
+            progress.reset()
         }
-        progress.reset()
     }
 
     static func schedulePeriodicChecks() {
@@ -229,13 +285,14 @@ enum UpdateChecker {
             throw UpdateError.parseFailed
         }
         let version = normalizeVersion(tag)
-        let pkgName = "ClipBar-\(version).pkg"
-        let direct = pkgCandidateURLs(version: version, tag: tag)
+        let artifactName = "ClipBar-\(version).dmg"
+        let direct = artifactCandidateURLs(named: artifactName, tag: tag)
         return ReleaseInfo(
             tagName: tag,
             htmlURL: "https://github.com/\(owner)/\(repo)/releases/tag/\(tag)",
             body: nil,
-            pkgName: pkgName,
+            artifactName: artifactName,
+            artifactKind: .dmg,
             expectedSize: nil,
             expectedSHA256: nil,
             downloadURLs: prioritizedDownloadURLs(direct)
@@ -257,14 +314,12 @@ enum UpdateChecker {
 
         let release = try JSONDecoder().decode(APIRelease.self, from: data)
         let version = normalizeVersion(release.tagName)
-        let asset = release.assets.first(where: {
-            guard $0.name.hasSuffix(".pkg") else { return false }
-            let name = $0.name.lowercased()
-            return name.contains("clipbar") || name.contains("clipboard-manager")
-        }) ?? release.assets.first(where: { $0.name.hasSuffix(".pkg") })
-
-        let pkgName = asset?.name ?? "ClipBar-\(version).pkg"
-        let checksumAsset = release.assets.first(where: { $0.name == "\(pkgName).sha256" })
+        let assetNames = release.assets.map(\.name)
+        let selectedName = UpdatePolicy.preferredArtifactName(from: assetNames, version: version)
+        let asset = selectedName.flatMap { name in release.assets.first(where: { $0.name == name }) }
+        let artifactName = asset?.name ?? "ClipBar-\(version).dmg"
+        let artifactKind: ArtifactKind = artifactName.lowercased().hasSuffix(".dmg") ? .dmg : .pkg
+        let checksumAsset = release.assets.first(where: { $0.name == "\(artifactName).sha256" })
         let expectedSHA256: String?
         if let checksumAsset,
            let checksumURL = URL(string: checksumAsset.browserDownloadURL) {
@@ -276,20 +331,21 @@ enum UpdateChecker {
         if let asset, let url = URL(string: asset.browserDownloadURL) {
             directs.append(url)
         }
-        directs.append(contentsOf: pkgCandidateURLs(version: version, tag: release.tagName))
+        directs.append(contentsOf: artifactCandidateURLs(named: artifactName, tag: release.tagName))
 
         return ReleaseInfo(
             tagName: release.tagName,
             htmlURL: release.htmlURL,
             body: release.body,
-            pkgName: pkgName,
+            artifactName: artifactName,
+            artifactKind: artifactKind,
             expectedSize: asset?.size,
             expectedSHA256: expectedSHA256,
             downloadURLs: prioritizedDownloadURLs(directs)
         )
     }
 
-    /// 校验文件始终从 GitHub Release 直连获取；镜像仅用于下载体积较大的 pkg。
+    /// 校验文件始终从 GitHub Release 直连获取；镜像仅用于下载体积较大的安装文件。
     private static func fetchSHA256(from url: URL) async throws -> String {
         var request = URLRequest(url: url)
         request.setValue(userAgent, forHTTPHeaderField: "User-Agent")
@@ -306,16 +362,11 @@ enum UpdateChecker {
         return digest
     }
 
-    private static func pkgCandidateURLs(version: String, tag: String) -> [URL] {
-        let names = [
-            "ClipBar-\(version).pkg",
-            "ClipBar-\(tag).pkg",
-            "Clipboard-Manager-\(version).pkg",
-            "Clipboard-Manager-\(tag).pkg",
-        ]
-        return names.compactMap {
-            URL(string: "https://github.com/\(owner)/\(repo)/releases/download/\(tag)/\($0)")
-        }
+    private static func artifactCandidateURLs(named name: String, tag: String) -> [URL] {
+        guard let url = URL(
+            string: "https://github.com/\(owner)/\(repo)/releases/download/\(tag)/\(name)"
+        ) else { return [] }
+        return [url]
     }
 
     /// 镜像优先，直连垫后；去重保序。
@@ -351,6 +402,7 @@ enum UpdateChecker {
     private static func downloadWithProgress(
         urls: [URL],
         named name: String,
+        kind: ArtifactKind,
         expectedSize: Int64?,
         expectedSHA256: String?
     ) async throws -> URL {
@@ -368,7 +420,11 @@ enum UpdateChecker {
                         UpdateProgressModel.shared.statusText = "正在下载… \(pct)%"
                     }
                 }
-                let hasValidContainer = isValidPKG(at: file, expectedSize: expectedSize)
+                let hasValidContainer = isValidArtifact(
+                    at: file,
+                    kind: kind,
+                    expectedSize: expectedSize
+                )
                 let actualSHA256 = hasValidContainer ? try await sha256Hex(of: file) : nil
                 if hasValidContainer, actualSHA256 == expectedSHA256 {
                     return file
@@ -395,21 +451,65 @@ enum UpdateChecker {
         }.value
     }
 
-    private static func isValidPKG(at url: URL, expectedSize: Int64?) -> Bool {
+    private static func isValidArtifact(
+        at url: URL,
+        kind: ArtifactKind,
+        expectedSize: Int64?
+    ) -> Bool {
         guard let attrs = try? FileManager.default.attributesOfItem(atPath: url.path),
               let size = attrs[.size] as? Int64,
               size > 1024 else { return false }
         if let expectedSize, expectedSize > 0, size != expectedSize {
             return false
         }
-        guard let handle = try? FileHandle(forReadingFrom: url),
-              let magic = try? handle.read(upToCount: 4),
-              magic == Data("xar!".utf8) else { return false }
-        return true
+        guard let handle = try? FileHandle(forReadingFrom: url) else { return false }
+        defer { try? handle.close() }
+        switch kind {
+        case .pkg:
+            let magic = try? handle.read(upToCount: 4)
+            return magic == Data("xar!".utf8)
+        case .dmg:
+            guard size >= 512,
+                  (try? handle.seek(toOffset: UInt64(size - 512))) != nil,
+                  let magic = try? handle.read(upToCount: 4) else {
+                return false
+            }
+            return magic == Data("koly".utf8)
+        }
     }
 
     private static func fileSize(_ url: URL) -> Int64 {
         ((try? FileManager.default.attributesOfItem(atPath: url.path)[.size] as? Int64) ?? 0)
+    }
+
+    private static var updateStatusURL: URL {
+        AppPaths.updatesDirectory().appendingPathComponent("install-status.json")
+    }
+
+    private static func launchUpdater(dmgURL: URL, version: String) throws {
+        guard Bundle.main.bundleURL.standardizedFileURL == installedAppURL.standardizedFileURL else {
+            throw UpdateError.notInstalledInApplications
+        }
+        guard let helperURL = Bundle.main.url(forAuxiliaryExecutable: "ClipBarUpdater") else {
+            throw UpdateError.updaterMissing
+        }
+
+        try? FileManager.default.removeItem(at: updateStatusURL)
+        let process = Process()
+        process.executableURL = helperURL
+        process.arguments = [
+            dmgURL.path,
+            installedAppURL.path,
+            Bundle.main.bundleIdentifier ?? "com.huxiaolong.ClipBar",
+            version,
+            updateStatusURL.path,
+            String(ProcessInfo.processInfo.processIdentifier),
+        ]
+        process.standardOutput = FileHandle.nullDevice
+        process.standardError = FileHandle.nullDevice
+        try process.run()
+        DebugLog.write("自动更新助手已启动 pid=\(process.processIdentifier) version=\(version)")
+        NSApp.terminate(nil)
     }
 
     // MARK: - UI
@@ -418,13 +518,36 @@ enum UpdateChecker {
         let alert = NSAlert()
         alert.messageText = "发现新版本 \(version)"
         let body = (notes?.trimmingCharacters(in: .whitespacesAndNewlines)).flatMap { $0.isEmpty ? nil : $0 }
-        alert.informativeText = body
-            ?? "当前版本 \(currentVersion)。将校验并打开系统安装器；真正开始安装时 ClipBar 会自动退出，完成后重新打开。"
+        alert.informativeText = "当前版本 \(currentVersion)。下载校验完成后将自动覆盖安装并重新启动。"
+        if let body, let notesView = releaseNotesView(markdown: body) {
+            alert.accessoryView = notesView
+        } else if let body {
+            alert.informativeText += "\n\n" + body
+        }
         alert.alertStyle = .informational
         alert.addButton(withTitle: "立即更新")
         alert.addButton(withTitle: "稍后")
         NSApp.activate(ignoringOtherApps: true)
         return alert.runModal() == .alertFirstButtonReturn
+    }
+
+    private static func releaseNotesView(markdown: String) -> NSView? {
+        guard let attributed = try? AttributedString(
+            markdown: markdown,
+            options: .init(interpretedSyntax: .full)
+        ) else { return nil }
+
+        let content = ScrollView {
+            Text(attributed)
+                .font(.system(size: 12))
+                .textSelection(.enabled)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .padding(.trailing, 8)
+        }
+        .frame(width: 520, height: 280)
+        let hosting = NSHostingView(rootView: content)
+        hosting.frame = NSRect(x: 0, y: 0, width: 520, height: 280)
+        return hosting
     }
 
     private static func presentAlert(
@@ -453,23 +576,11 @@ enum UpdateChecker {
     // MARK: - Version
 
     static func normalizeVersion(_ raw: String) -> String {
-        var s = raw.trimmingCharacters(in: .whitespacesAndNewlines)
-        if s.lowercased().hasPrefix("v") {
-            s.removeFirst()
-        }
-        return s
+        UpdatePolicy.normalizeVersion(raw)
     }
 
     static func compareVersion(_ lhs: String, _ rhs: String) -> Int {
-        let a = lhs.split(separator: ".").map { Int($0) ?? 0 }
-        let b = rhs.split(separator: ".").map { Int($0) ?? 0 }
-        let n = max(a.count, b.count)
-        for i in 0..<n {
-            let x = i < a.count ? a[i] : 0
-            let y = i < b.count ? b[i] : 0
-            if x != y { return x > y ? 1 : -1 }
-        }
-        return 0
+        UpdatePolicy.compareVersion(lhs, rhs)
     }
 
     private enum UpdateError: LocalizedError {
@@ -482,6 +593,8 @@ enum UpdateChecker {
         case invalidChecksum
         case checksumMismatch
         case openInstallerFailed
+        case notInstalledInApplications
+        case updaterMissing
 
         var errorDescription: String? {
             switch self {
@@ -509,6 +622,10 @@ enum UpdateChecker {
                 return "安装包 SHA-256 校验不一致，已删除下载文件并停止安装。"
             case .openInstallerFailed:
                 return "无法打开系统安装器，请前往 Releases 手动下载。"
+            case .notInstalledInApplications:
+                return "自动覆盖要求 ClipBar 位于“应用程序”文件夹。请先将它移动到 /Applications 后重试。"
+            case .updaterMissing:
+                return "当前应用缺少更新助手，请前往 Releases 手动下载。"
             }
         }
     }

@@ -69,7 +69,8 @@ final class BottomPanelController: NSObject {
 
         // 在激活自己之前记住当前前台 App，粘贴时定向注入到它
         let sourcePID = NSWorkspace.shared.frontmostApplication?.processIdentifier
-        viewModel.panelWillOpen(from: sourcePID)
+        let pasteTarget = PasteService.captureTarget(pid: sourcePID)
+        viewModel.panelWillOpen(from: pasteTarget)
 
         let screen = ScreenHelper.activeScreen
         let visible = screen.visibleFrame

@@ -28,6 +28,13 @@ let package = Package(
             ]
         ),
         .executableTarget(
+            name: "ClipBarUpdater",
+            path: "Sources/ClipBarUpdater",
+            linkerSettings: [
+                .linkedFramework("Security")
+            ]
+        ),
+        .executableTarget(
             name: "CoreTests",
             dependencies: ["ClipboardManagerCore"],
             path: "Tests/ClipboardManagerCoreTests",

@@ -83,8 +83,14 @@ public final class AppSettings {
 
     /// 是否应向用户展示「有更新」提示（排除已静默版本）。
     public var shouldSurfaceUpdate: Bool {
-        guard let available = availableUpdateVersion, !available.isEmpty else { return false }
-        return available != dismissedUpdateVersion
+        let currentVersion = Bundle.main.object(
+            forInfoDictionaryKey: "CFBundleShortVersionString"
+        ) as? String ?? "0"
+        return UpdatePolicy.shouldSurfaceUpdate(
+            availableVersion: availableUpdateVersion,
+            dismissedVersion: dismissedUpdateVersion,
+            currentVersion: currentVersion
+        )
     }
 
     /// 复制时忽略的应用 bundle identifier 列表。

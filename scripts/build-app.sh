@@ -16,12 +16,14 @@ if [ ! -f "$ROOT/Resources/AppIcon.icns" ]; then
 fi
 
 swift build -c "$CONFIG" --product "$PRODUCT_NAME"
+swift build -c "$CONFIG" --product "ClipBarUpdater"
 
 APP_DIR="$ROOT/dist/$APP_NAME.app"
 rm -rf "$APP_DIR"
 mkdir -p "$APP_DIR/Contents/MacOS" "$APP_DIR/Contents/Resources"
 
 cp "$ROOT/.build/$CONFIG/$PRODUCT_NAME" "$APP_DIR/Contents/MacOS/"
+cp "$ROOT/.build/$CONFIG/ClipBarUpdater" "$APP_DIR/Contents/MacOS/"
 cp "$ROOT/Resources/Info.plist" "$APP_DIR/Contents/Info.plist"
 cp "$ROOT/Resources/AppIcon.icns" "$APP_DIR/Contents/Resources/"
 
