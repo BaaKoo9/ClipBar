@@ -286,8 +286,17 @@ private struct QueueListView: View {
     }
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 10) {
+        VStack(alignment: .leading, spacing: 5) {
             queueHeader
+                .padding(.horizontal, 14)
+                .padding(.top, 14)
+                .padding(.bottom, 5)
+                .contentShape(Rectangle())
+                .gesture(
+                    DragGesture(minimumDistance: 2)
+                        .onChanged { _ in onWindowDrag(false) }
+                        .onEnded { _ in onWindowDrag(true) }
+                )
 
             ScrollViewReader { proxy in
                 ScrollView(.vertical, showsIndicators: items.count > Self.maxVisibleRows) {
@@ -333,12 +342,13 @@ private struct QueueListView: View {
                 .onAppear {
                     scrollToLatest(proxy)
                 }
-                .onChange(of: items.count) { _, _ in
+                .onChange(of: items.count) { _ in
                     scrollToLatest(proxy)
                 }
             }
+            .padding(.horizontal, 14)
+            .padding(.bottom, 14)
         }
-        .padding(14)
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
         .background {
             ZStack {
@@ -384,16 +394,10 @@ private struct QueueListView: View {
                 }
             }
             .frame(maxWidth: .infinity, alignment: .leading)
-            .contentShape(Rectangle())
-            .gesture(
-                DragGesture(minimumDistance: 2)
-                    .onChanged { _ in onWindowDrag(false) }
-                    .onEnded { _ in onWindowDrag(true) }
-            )
             .help("拖动队列窗口")
 
             QueueHeaderButton(title: "倒序", systemImage: "arrow.up.arrow.down") {
-                withAnimation(.snappy(duration: 0.18, extraBounce: 0)) {
+                withAnimation(.easeOut(duration: 0.18)) {
                     viewModel.reverseQueue()
                 }
             }

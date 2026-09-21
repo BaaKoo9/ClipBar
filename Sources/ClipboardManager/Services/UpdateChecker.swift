@@ -116,7 +116,7 @@ enum UpdateChecker {
             return
         }
         isOperationInFlight = true
-        DebugLog.write("检查更新：当前版本 \(currentVersion) interactive=\(interactive)")
+        DebugLog.write("检查更新：当前版本 \(currentVersion) arch=\(UpdateArchitecture.current.rawValue) interactive=\(interactive)")
         if interactive {
             progress.phase = .checking
             progress.fractionCompleted = 0
@@ -159,7 +159,7 @@ enum UpdateChecker {
                 }
 
                 guard release.expectedSHA256 != nil else {
-                    let message = "该版本缺少与安装文件同名的 SHA-256 校验文件。为避免安装来源不明的包，请前往 Releases 手动下载。"
+                    let message = "该版本未提供适用于当前芯片（\(UpdateArchitecture.current.rawValue)）的安装包及有效 SHA-256 校验。请前往 Releases 检查对应芯片的下载。"
                     progress.phase = .failed(message)
                     progress.statusText = "自动更新校验不可用"
                     presentAlert(
@@ -285,7 +285,7 @@ enum UpdateChecker {
             throw UpdateError.parseFailed
         }
         let version = normalizeVersion(tag)
-        let artifactName = "ClipBar-\(version).dmg"
+        let artifactName = "ClipBar-\(version)-\(UpdateArchitecture.current.rawValue).dmg"
         let direct = artifactCandidateURLs(named: artifactName, tag: tag)
         return ReleaseInfo(
             tagName: tag,
@@ -317,9 +317,11 @@ enum UpdateChecker {
         let assetNames = release.assets.map(\.name)
         let selectedName = UpdatePolicy.preferredArtifactName(from: assetNames, version: version)
         let asset = selectedName.flatMap { name in release.assets.first(where: { $0.name == name }) }
-        let artifactName = asset?.name ?? "ClipBar-\(version).dmg"
+        let artifactName = asset?.name ?? "ClipBar-\(version)-\(UpdateArchitecture.current.rawValue).dmg"
         let artifactKind: ArtifactKind = artifactName.lowercased().hasSuffix(".dmg") ? .dmg : .pkg
-        let checksumAsset = release.assets.first(where: { $0.name == "\(artifactName).sha256" })
+        let checksumAsset = asset.flatMap { selected in
+            release.assets.first(where: { $0.name == "\(selected.name).sha256" })
+        }
         let expectedSHA256: String?
         if let checksumAsset,
            let checksumURL = URL(string: checksumAsset.browserDownloadURL) {

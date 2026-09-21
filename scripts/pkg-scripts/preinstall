@@ -2,6 +2,16 @@
 # 覆盖安装前先退出正在运行的实例，避免替换正在执行的二进制。
 set -u
 
+expected="@CLIPBAR_ARCH@"
+host_arch="$(uname -m)"
+if [[ "$(/usr/sbin/sysctl -n hw.optional.arm64 2>/dev/null || true)" == "1" ]]; then
+    host_arch="arm64"
+fi
+if [[ "$expected" != "$host_arch" ]]; then
+    echo "此安装包适用于 $expected，当前 Mac 为 $host_arch。请下载对应芯片的安装包。" >&2
+    exit 1
+fi
+
 osascript -e 'quit app "ClipBar"' >/dev/null 2>&1 || true
 osascript -e 'quit app "Clipboard Manager"' >/dev/null 2>&1 || true
 sleep 1

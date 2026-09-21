@@ -41,9 +41,9 @@
 
 | | |
 |---|---|
-| 系统 | **macOS 14 Sonoma** 及以上（含 15 Sequoia） |
-| 芯片 | Apple Silicon 与 Intel |
-| 权限 | **辅助功能** + **输入监控**（全局快捷键与自动粘贴） |
+| 系统 | **macOS 13 Ventura** 及以上（含较新版本） |
+| 芯片 | Apple Silicon（arm64）与 Intel（x86_64），分别下载；Intel 从 v1.0.12 起支持 |
+| 权限 | **辅助功能** + **输入监控**（全局快捷键与自动粘贴）；文件粘贴建议开启**完整磁盘访问权限** |
 
 ## 安装
 
@@ -51,8 +51,14 @@
 
 | 产物 | 适用场景 |
 |---|---|
-| **`ClipBar-x.y.z.pkg`** | 双击按系统安装器装到「应用程序」（推荐） |
-| **`ClipBar-x.y.z.dmg`** | 打开后把 `ClipBar.app` 拖到 **Applications** |
+| **`ClipBar-x.y.z-arm64.pkg` / `.dmg`** | Apple Silicon：M1、M2、M3 等 M 系列 |
+| **`ClipBar-x.y.z-x86_64.pkg` / `.dmg`** | Intel Mac |
+
+PKG 双击安装到「应用程序」；DMG 打开后将 `ClipBar.app` 拖入 **Applications**。每个包都提供同名 `.sha256` 校验文件，最低要求 macOS 13。
+
+从 v1.0.12 起，应用内更新只选择与本机芯片匹配的安装包，DMG 优先、同架构 PKG 兜底。Apple Silicon 即使运行 Intel 版（Rosetta），也会更新为原生 ARM 版。无匹配包或有效校验时会停止自动安装。
+
+无架构后缀的 `ClipBar-x.y.z.pkg` / `.dmg` 仅作为旧版 ARM 更新器的兼容别名，**不适用于 Intel**。v1.0.11 及以前的官方包只有 ARM 版。
 
 ### 首次打开（未公证）
 
@@ -65,6 +71,7 @@
 
 - 辅助功能  
 - 输入监控  
+- **建议：完整磁盘访问权限**，用于改善受保护目录中文件的复制与粘贴兼容性。前往「系统设置 → 隐私与安全性 → 完整磁盘访问权限」，添加并开启 `/Applications/ClipBar.app`，然后重新启动 ClipBar。此项不是使用文本剪贴板的必需条件。
 
 ### 更换签名证书后的重新授权
 
@@ -117,15 +124,20 @@ tccutil reset ListenEvent com.huxiaolong.ClipBar
 
 ## 从源码构建
 
-需 macOS 14+ 与 Xcode Command Line Tools（不必装完整 Xcode）：
+需 macOS 13+ 与 Xcode Command Line Tools（不必装完整 Xcode）：
 
 ```bash
 ./scripts/create-local-signing-identity.sh  # 每台构建 Mac 首次运行
-./scripts/build-app.sh          # 生成 dist/ClipBar.app
-./scripts/make-pkg.sh           # 生成 .pkg 与 .pkg.sha256
-./scripts/make-dmg.sh           # 生成 .dmg 与 .dmg.sha256
+./scripts/build-app.sh release arm64   # dist/arm64/ClipBar.app
+./scripts/build-app.sh release x86_64  # dist/x86_64/ClipBar.app
+./scripts/make-pkg.sh arm64           # Intel 改用 x86_64
+./scripts/make-dmg.sh arm64           # Intel 改用 x86_64
+./scripts/make-release-artifacts.sh   # 两套制品、校验文件及旧版 ARM 兼容别名
+./scripts/install-local.sh release    # 构建本机原生架构并覆盖安装
 ./scripts/run-tests.sh          # 核心单元测试
 ```
+
+两种架构都使用 macOS 工具链交叉编译，无需 Docker。发布脚本在打包前检查主程序和更新助手的架构，并使用同一固定证书签名。Intel 真机交互仍需在 Intel Mac 上验收。
 
 首次初始化会在 `~/Library/Keychains/clipboard-dev.keychain-db` 创建长期自签名身份。正式构建缺少该身份时会直接失败，不会静默退回 ad-hoc 签名。若换电脑后创建新身份，朋友需要按上面的步骤重新授权一次；此后继续使用同一身份发布即可保留权限。
 

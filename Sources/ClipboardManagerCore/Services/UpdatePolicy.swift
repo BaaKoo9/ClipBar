@@ -37,22 +37,19 @@ public enum UpdatePolicy {
         return normalizeVersion(availableVersion) != dismissedVersion.map(normalizeVersion)
     }
 
-    /// 优先选择带同名 SHA-256 文件的 DMG；旧版 Release 没有 DMG 校验时安全回退到 pkg。
-    public static func preferredArtifactName(from assetNames: [String], version: String) -> String? {
+    /// 仅选择本机架构且带校验的确切版本；旧的无架构名仅属于 Apple Silicon。
+    public static func preferredArtifactName(
+        from assetNames: [String], version: String, architecture: UpdateArchitecture = .current
+    ) -> String? {
         let names = Set(assetNames)
         let normalizedVersion = normalizeVersion(version)
-        let preferredNames = [
-            "ClipBar-\(normalizedVersion).dmg",
-            "ClipBar-\(normalizedVersion).pkg",
+        var preferredNames = [
+            "ClipBar-\(normalizedVersion)-\(architecture.rawValue).dmg",
+            "ClipBar-\(normalizedVersion)-\(architecture.rawValue).pkg",
         ]
-
-        if let exact = preferredNames.first(where: { names.contains($0) && names.contains("\($0).sha256") }) {
-            return exact
+        if architecture == .arm64 {
+            preferredNames += ["ClipBar-\(normalizedVersion).dmg", "ClipBar-\(normalizedVersion).pkg"]
         }
-        return assetNames.first(where: { name in
-            let lowercased = name.lowercased()
-            return (lowercased.hasSuffix(".dmg") || lowercased.hasSuffix(".pkg"))
-                && names.contains("\(name).sha256")
-        })
+        return preferredNames.first { names.contains($0) && names.contains("\($0).sha256") }
     }
 }

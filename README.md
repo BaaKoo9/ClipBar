@@ -41,9 +41,9 @@ Summon with a hotkey, pick with arrow keys, paste with Enter — without leaving
 
 | | |
 |---|---|
-| macOS | **14 Sonoma** or later (incl. 15 Sequoia) |
-| Chip | Apple Silicon & Intel |
-| Permissions | **Accessibility** + **Input Monitoring** (hotkeys & auto-paste) |
+| macOS | **13 Ventura** or later |
+| Chip | Separate Apple Silicon (arm64) and Intel (x86_64) builds; Intel support starts with v1.0.12 |
+| Permissions | **Accessibility** + **Input Monitoring** (hotkeys & auto-paste); **Full Disk Access** recommended for file pasting |
 
 ## Install
 
@@ -51,8 +51,14 @@ Grab the latest build from [Releases](https://github.com/BaaKoo9/ClipBar/release
 
 | Asset | Use when |
 |---|---|
-| **`ClipBar-x.y.z.pkg`** | Double-click → installs into Applications (recommended) |
-| **`ClipBar-x.y.z.dmg`** | Open → drag `ClipBar.app` onto **Applications** |
+| **`ClipBar-x.y.z-arm64.pkg` / `.dmg`** | Apple Silicon: M1, M2, M3 and other M-series Macs |
+| **`ClipBar-x.y.z-x86_64.pkg` / `.dmg`** | Intel Macs |
+
+Double-click the PKG to install, or open the DMG and drag `ClipBar.app` into **Applications**. Each package has a matching `.sha256` file. Both builds require macOS 13 or later.
+
+Starting with v1.0.12, in-app updates select only packages for the Mac's hardware architecture, preferring DMG with a same-architecture PKG fallback. An Intel build running under Rosetta on Apple Silicon migrates to the native ARM build. Automatic installation stops if a matching package or valid checksum is unavailable.
+
+Names without an architecture suffix (`ClipBar-x.y.z.pkg` / `.dmg`) are compatibility aliases for older ARM updaters, **not Intel downloads**. Official releases through v1.0.11 contain ARM binaries only.
 
 ### First open (not notarized)
 
@@ -65,6 +71,7 @@ Then enable for ClipBar:
 
 - Accessibility  
 - Input Monitoring  
+- **Recommended: Full Disk Access** to improve copying and pasting files in protected locations. Open System Settings → Privacy & Security → Full Disk Access, add and enable `/Applications/ClipBar.app`, then restart ClipBar. This is not required for text clipboard use.
 
 ### Re-authorize after replacing the signing certificate
 
@@ -117,15 +124,20 @@ All shortcuts are customizable in Settings.
 
 ## Build from source
 
-macOS 14+ with Xcode Command Line Tools (full Xcode not required):
+macOS 13+ with Xcode Command Line Tools (full Xcode not required):
 
 ```bash
 ./scripts/create-local-signing-identity.sh  # once per build Mac
-./scripts/build-app.sh          # dist/ClipBar.app
-./scripts/make-pkg.sh           # dist/ClipBar-x.y.z.pkg + .pkg.sha256
-./scripts/make-dmg.sh           # dist/ClipBar-x.y.z.dmg + .dmg.sha256
+./scripts/build-app.sh release arm64   # dist/arm64/ClipBar.app
+./scripts/build-app.sh release x86_64  # dist/x86_64/ClipBar.app
+./scripts/make-pkg.sh arm64           # use x86_64 for Intel
+./scripts/make-dmg.sh arm64           # use x86_64 for Intel
+./scripts/make-release-artifacts.sh   # both architectures, checksums and legacy ARM aliases
+./scripts/install-local.sh release    # build and install the native architecture
 ./scripts/run-tests.sh          # core unit tests
 ```
+
+Both architectures are cross-compiled with the macOS toolchain; Docker is not required. Packaging checks both executables and signs them with the same fixed identity. Interactive testing on an Intel Mac is still required.
 
 The one-time setup creates a long-lived self-signed code-signing identity in
 `~/Library/Keychains/clipboard-dev.keychain-db`. Release builds fail instead of

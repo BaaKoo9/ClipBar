@@ -11,21 +11,25 @@ set -euo pipefail
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 APP_NAME="ClipBar"
 IDENTIFIER="com.huxiaolong.ClipBar"
+source "$ROOT/scripts/build-common.sh"
+ARCH="$(clipbar_arch "${1:-native}")"
 
 cd "$ROOT"
-./scripts/build-app.sh release
+clipbar_prepare_app "$ARCH"
 
 VERSION=$(/usr/libexec/PlistBuddy -c "Print :CFBundleShortVersionString" "$ROOT/Resources/Info.plist")
 
-STAGE="$ROOT/dist/pkg-root"
-SCRIPTS="$ROOT/dist/pkg-scripts"
-COMPONENT="$ROOT/dist/component.pkg"
-PKG_PATH="$ROOT/dist/ClipBar-$VERSION.pkg"
+WORK="$(mktemp -d "$ROOT/dist/.pkg-$ARCH.XXXXXX")"
+trap 'rm -rf "$WORK"' EXIT
+STAGE="$WORK/pkg-root"
+SCRIPTS="$WORK/pkg-scripts"
+COMPONENT="$WORK/component.pkg"
+PKG_PATH="$ROOT/dist/ClipBar-$VERSION-$ARCH.pkg"
 CHECKSUM_PATH="$PKG_PATH.sha256"
 
 rm -rf "$STAGE" "$SCRIPTS" "$COMPONENT"
 mkdir -p "$STAGE"
-cp -R "$ROOT/dist/$APP_NAME.app" "$STAGE/"
+cp -R "$ROOT/dist/$ARCH/$APP_NAME.app" "$STAGE/"
 
 # 复制脚本并确保可执行位（git 可能没保留权限）。
 # 包内会多出 ._preinstall / ._postinstall 两个 AppleDouble 条目：
@@ -33,6 +37,7 @@ cp -R "$ROOT/dist/$APP_NAME.app" "$STAGE/"
 # pkgbuild 会把它编码进包。安装器按文件名精确执行脚本，这两个条目不会被运行，无影响。
 mkdir -p "$SCRIPTS"
 cp -X "$ROOT/scripts/pkg-scripts/preinstall" "$ROOT/scripts/pkg-scripts/postinstall" "$SCRIPTS/"
+sed -i '' "s/@CLIPBAR_ARCH@/$ARCH/g" "$SCRIPTS/preinstall"
 chmod +x "$SCRIPTS"/preinstall "$SCRIPTS"/postinstall
 
 pkgbuild \
@@ -44,17 +49,17 @@ pkgbuild \
     "$COMPONENT" >/dev/null
 
 # 用 distribution 包一层：设置标题、关闭安装位置选择、限制最低系统版本
-DIST="$ROOT/dist/distribution.xml"
+DIST="$WORK/distribution.xml"
 cat > "$DIST" <<XML
 <?xml version="1.0" encoding="utf-8"?>
 <installer-gui-script minSpecVersion="2">
     <title>ClipBar</title>
     <organization>com.huxiaolong</organization>
-    <options customize="never" require-scripts="true" hostArchitectures="arm64,x86_64"/>
+    <options customize="never" require-scripts="true" hostArchitectures="$ARCH"/>
     <domains enable_anywhere="false" enable_currentUserHome="false" enable_localSystem="true"/>
     <volume-check>
         <allowed-os-versions>
-            <os-version min="14.0"/>
+            <os-version min="13.0"/>
         </allowed-os-versions>
     </volume-check>
     <choices-outline>
@@ -69,23 +74,20 @@ XML
 
 productbuild \
     --distribution "$DIST" \
-    --package-path "$ROOT/dist" \
+    --package-path "$WORK" \
     "$PKG_PATH" >/dev/null
 
 # 旧版 Release 或 DMG 校验缺失时，自动更新仍可用该文件安全回退到 pkg。
 # 哈希覆盖安装脚本和 App 载荷，因此签名证书换代不会让更新器误判失败。
 (
     cd "$ROOT/dist"
-    shasum -a 256 "ClipBar-$VERSION.pkg" > "ClipBar-$VERSION.pkg.sha256"
+    shasum -a 256 "ClipBar-$VERSION-$ARCH.pkg" > "ClipBar-$VERSION-$ARCH.pkg.sha256"
 )
 
 rm -rf "$STAGE" "$SCRIPTS" "$COMPONENT" "$DIST"
-if [ -d "$ROOT/dist/$APP_NAME.app" ]; then
-    find "$ROOT/dist/$APP_NAME.app" -depth -delete
+if [[ "${CLIPBAR_KEEP_APP:-0}" != "1" && -d "$ROOT/dist/$ARCH/$APP_NAME.app" ]]; then
+    find "$ROOT/dist/$ARCH/$APP_NAME.app" -depth -delete
 fi
-
-# dist 只保留最新产物：清理旧版 pkg/dmg（本次留下当前版本 pkg）
-find "$ROOT/dist" -maxdepth 1 -type f \( -name 'ClipBar-*.pkg' -o -name 'ClipBar-*.pkg.sha256' -o -name 'ClipBar-*.dmg' -o -name 'ClipBar-*.dmg.sha256' -o -name 'Clipboard-Manager-*.pkg' -o -name 'Clipboard-Manager-*.dmg' -o -name 'Clipboard-Manager.dmg' \) ! -name "ClipBar-${VERSION}.pkg" ! -name "ClipBar-${VERSION}.pkg.sha256" -delete 2>/dev/null || true
 
 echo "PKG 已生成: $PKG_PATH"
 echo "SHA-256: $CHECKSUM_PATH"

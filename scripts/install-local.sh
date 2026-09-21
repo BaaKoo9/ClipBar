@@ -5,11 +5,13 @@ set -euo pipefail
 
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 APP_NAME="ClipBar"
-APP_SRC="$ROOT/dist/$APP_NAME.app"
+source "$ROOT/scripts/build-common.sh"
+ARCH="$(clipbar_arch native)"
+APP_SRC="$ROOT/dist/$ARCH/$APP_NAME.app"
 APP_DST="/Applications/$APP_NAME.app"
 
 cd "$ROOT"
-./scripts/build-app.sh "${1:-release}"
+./scripts/build-app.sh "${1:-release}" "$ARCH"
 
 pkill -x "ClipBar" 2>/dev/null || true
 sleep 0.3

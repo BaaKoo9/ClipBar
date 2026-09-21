@@ -1,6 +1,7 @@
 import Darwin
 import Foundation
 import Security
+import ClipboardManagerCore
 
 private struct UpdateArguments {
     let dmgURL: URL
@@ -40,6 +41,7 @@ private enum UpdaterError: LocalizedError {
     case invalidBundle
     case signatureFailed(String)
     case signingIdentityChanged
+    case incompatibleArchitecture
 
     var errorDescription: String? {
         switch self {
@@ -51,6 +53,7 @@ private enum UpdaterError: LocalizedError {
         case .invalidBundle: return "更新包的应用标识或版本不匹配"
         case .signatureFailed(let message): return "更新包签名校验失败：\(message)"
         case .signingIdentityChanged: return "更新包签名身份与当前版本不一致"
+        case .incompatibleArchitecture: return "更新包芯片架构不匹配，当前应用已保留"
         }
     }
 }
@@ -143,6 +146,13 @@ private func validateCandidate(
             throw UpdaterError.signingIdentityChanged
         }
         throw UpdaterError.signatureFailed(securityMessage(for: verificationStatus))
+    }
+    guard let executable = bundle.executableURL,
+          UpdateArchitecture.current.matchesExecutable(at: executable),
+          UpdateArchitecture.current.matchesExecutable(
+              at: candidateURL.appendingPathComponent("Contents/MacOS/ClipBarUpdater")
+          ) else {
+        throw UpdaterError.incompatibleArchitecture
     }
 }
 

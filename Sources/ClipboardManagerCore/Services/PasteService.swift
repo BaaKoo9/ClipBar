@@ -29,9 +29,11 @@ public enum PasteHandoffPolicy {
 public final class PasteService {
     public static let shared = PasteService()
 
-    private let pasteboard = NSPasteboard.general
+    private let pasteboard: NSPasteboard
 
-    private init() {}
+    init(pasteboard: NSPasteboard = .general) {
+        self.pasteboard = pasteboard
+    }
 
     /// 把历史条目写回系统剪贴板；返回内容 hash（供监听器忽略，避免自记）。
     @discardableResult

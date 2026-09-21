@@ -264,7 +264,7 @@ struct SettingsView: View {
             sectionTitle("通用")
 
             Toggle("开机时自动启动", isOn: $launchAtLogin)
-                .onChange(of: launchAtLogin) { _, _ in
+                .onChange(of: launchAtLogin) { _ in
                     generalDirty = true
                     generalSaveFlash = false
                 }
@@ -282,14 +282,14 @@ struct SettingsView: View {
                 }
                 .labelsHidden()
                 .frame(width: 82)
-                .onChange(of: historyLimit) { _, _ in
+                .onChange(of: historyLimit) { _ in
                     generalDirty = true
                     generalSaveFlash = false
                 }
             }
 
             Toggle("自动清理过期内容", isOn: $retentionEnabled)
-                .onChange(of: retentionEnabled) { _, _ in
+                .onChange(of: retentionEnabled) { _ in
                     generalDirty = true
                     generalSaveFlash = false
                 }
@@ -303,7 +303,7 @@ struct SettingsView: View {
                         .frame(width: 44)
                         .multilineTextAlignment(.trailing)
                         .focused($retentionFieldFocused)
-                        .onChange(of: retentionDaysText) { _, text in
+                        .onChange(of: retentionDaysText) { text in
                             generalDirty = true
                             generalSaveFlash = false
                             if let days = Int(text.trimmingCharacters(in: .whitespacesAndNewlines)),
@@ -315,7 +315,7 @@ struct SettingsView: View {
                         .foregroundStyle(.secondary)
                     Stepper("", value: $retentionDays, in: 1...90)
                         .labelsHidden()
-                        .onChange(of: retentionDays) { _, days in
+                        .onChange(of: retentionDays) { days in
                             retentionDaysText = "\(days)"
                             generalDirty = true
                             generalSaveFlash = false
@@ -327,7 +327,7 @@ struct SettingsView: View {
             }
 
             Toggle("粘贴后移到最前", isOn: $bumpOnPaste)
-                .onChange(of: bumpOnPaste) { _, _ in
+                .onChange(of: bumpOnPaste) { _ in
                     generalDirty = true
                     generalSaveFlash = false
                 }
@@ -337,7 +337,7 @@ struct SettingsView: View {
 
             VStack(alignment: .leading, spacing: 4) {
                 Toggle("选中后自动粘贴", isOn: $autoPaste)
-                    .onChange(of: autoPaste) { _, _ in
+                    .onChange(of: autoPaste) { _ in
                         generalDirty = true
                         generalSaveFlash = false
                     }
@@ -464,6 +464,23 @@ struct SettingsView: View {
     private var privacySection: some View {
         VStack(alignment: .leading, spacing: 10) {
             sectionTitle("隐私")
+
+            VStack(alignment: .leading, spacing: 6) {
+                Text("建议开启完整磁盘访问权限")
+                    .font(.system(size: 12, weight: .medium))
+                Text("为改善受保护目录中文件的复制与粘贴兼容性，建议在「系统设置 → 隐私与安全性 → 完整磁盘访问权限」中添加并开启 ClipBar，然后重新启动应用。此权限为建议项。")
+                    .font(.system(size: 11))
+                    .foregroundStyle(.secondary)
+                Button("打开完整磁盘访问设置") {
+                    if let url = URL(string: "x-apple.systempreferences:com.apple.preference.security?Privacy_AllFiles") {
+                        NSWorkspace.shared.open(url)
+                    }
+                }
+                .buttonStyle(.bordered)
+            }
+            .padding(10)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .background(Color.primary.opacity(0.04), in: RoundedRectangle(cornerRadius: 8))
 
             Text("忽略名单中的应用，其复制内容不会写入历史。")
                 .font(.system(size: 11))

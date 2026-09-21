@@ -4,7 +4,7 @@ import PackageDescription
 let package = Package(
     name: "ClipBar",
     platforms: [
-        .macOS(.v14)
+        .macOS(.v13)
     ],
     targets: [
         .target(
@@ -29,6 +29,7 @@ let package = Package(
         ),
         .executableTarget(
             name: "ClipBarUpdater",
+            dependencies: ["ClipboardManagerCore"],
             path: "Sources/ClipBarUpdater",
             linkerSettings: [
                 .linkedFramework("Security")

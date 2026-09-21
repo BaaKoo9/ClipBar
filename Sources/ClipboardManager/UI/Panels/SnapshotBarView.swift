@@ -32,7 +32,7 @@ struct SnapshotBarView: View {
         snapshotContent
     }
 
-    private var snapshotContent: some View {
+    private var snapshotLayout: some View {
         VStack(spacing: 0) {
             chromeBar
             Divider().opacity(0.55)
@@ -67,44 +67,64 @@ struct SnapshotBarView: View {
                 .stroke(BrandTheme.panelStroke, lineWidth: 1)
         )
         .shadow(color: Color.black.opacity(0.28), radius: 36, y: 12)
-        .focusable()
-        .focused($panelFocused)
-        .focusEffectDisabled()
-        .onKeyPress { press in
-            guard !searchFocused else { return .ignored }
+    }
 
-            switch press.key {
-            case .leftArrow:
-                moveSelection(offset: -1)
-                return .handled
-            case .rightArrow:
-                moveSelection(offset: 1)
-                return .handled
-            case .escape:
-                viewModel.requestClose()
-                return .handled
-            case .return:
-                if press.modifiers.contains(.command) {
-                    viewModel.enqueueSelected()
-                } else {
-                    viewModel.pasteSelected()
+    @ViewBuilder
+    private var keyboardSurface: some View {
+        if #available(macOS 14, *) {
+            snapshotLayout
+                .focusable()
+                .focused($panelFocused)
+                .focusEffectDisabled()
+                .onKeyPress { press in
+                    guard !searchFocused else { return .ignored }
+
+                    switch press.key {
+                    case .leftArrow:
+                        moveSelection(offset: -1)
+                        return .handled
+                    case .rightArrow:
+                        moveSelection(offset: 1)
+                        return .handled
+                    case .escape:
+                        viewModel.requestClose()
+                        return .handled
+                    case .return:
+                        if press.modifiers.contains(.command) {
+                            viewModel.enqueueSelected()
+                        } else {
+                            viewModel.pasteSelected()
+                        }
+                        return .handled
+                    default:
+                        if press.modifiers.contains(.command), press.characters.lowercased() == "f" {
+                            applyFocus(for: .searchRequested)
+                            return .handled
+                        }
+                        return .ignored
+                    }
                 }
-                return .handled
-            default:
-                if press.modifiers.contains(.command), press.characters.lowercased() == "f" {
-                    applyFocus(for: .searchRequested)
-                    return .handled
-                }
-                return .ignored
-            }
+        } else {
+            snapshotLayout.background(
+                LegacyPanelKeyboardView(
+                    wantsFocus: panelFocused && !searchFocused,
+                    focusGeneration: viewModel.panelFocusGeneration,
+                    onKeyDown: handleLegacyKey
+                )
+                .frame(width: 0, height: 0)
+            )
         }
+    }
+
+    private var snapshotContent: some View {
+        keyboardSurface
         .onAppear {
             applyFocus(for: .panelOpened)
         }
-        .onChange(of: viewModel.panelFocusGeneration) { _, _ in
+        .onChange(of: viewModel.panelFocusGeneration) { _ in
             applyFocus(for: .panelOpened)
         }
-        .onChange(of: viewModel.searchText) { _, _ in
+        .onChange(of: viewModel.searchText) { _ in
             viewModel.searchDidChange()
         }
         .popover(isPresented: Binding(
@@ -129,6 +149,28 @@ struct SnapshotBarView: View {
         } message: { label in
             Text("确定删除「\(label.name)」？已打在条目上的该标签也会移除。")
         }
+    }
+
+    private func handleLegacyKey(_ event: NSEvent) -> Bool {
+        let editor = event.window?.firstResponder as? NSTextView
+        let action = PanelInteractionPolicy.keyAction(
+            keyCode: event.keyCode,
+            command: event.modifierFlags.contains(.command),
+            modified: !event.modifierFlags.intersection([.control, .option]).isEmpty,
+            searching: searchFocused,
+            composing: editor?.hasMarkedText() ?? false,
+            editingOtherText: editor != nil && !searchFocused
+        )
+        guard let action else { return false }
+        switch action {
+        case .left: moveSelection(offset: -1)
+        case .right: moveSelection(offset: 1)
+        case .close: viewModel.requestClose()
+        case .paste: viewModel.pasteSelected()
+        case .enqueue: viewModel.enqueueSelected()
+        case .search: applyFocus(for: .searchRequested)
+        }
+        return true
     }
 
     private func applyFocus(for intent: PanelInteractionPolicy.FocusIntent) {
@@ -178,7 +220,7 @@ struct SnapshotBarView: View {
                     return
                 }
 
-                withAnimation(.snappy(duration: 0.16, extraBounce: 0)) {
+                withAnimation(.easeOut(duration: 0.16)) {
                     labelDragOffset = .zero
                     viewModel.moveLabel(
                         draggingID: proposal.sourceID,
@@ -369,15 +411,20 @@ struct SnapshotBarView: View {
         }
     }
 
-    private var searchField: some View {
-        HStack(spacing: 6) {
-            Image(systemName: "magnifyingglass")
-                .font(.system(size: 11, weight: .medium))
-                .foregroundStyle(.secondary)
-            TextField("搜索（⌘F）", text: $viewModel.searchText)
-                .textFieldStyle(.plain)
-                .font(.system(size: 12))
-                .focused($searchFocused)
+    private var searchTextField: some View {
+        TextField("搜索（⌘F）", text: $viewModel.searchText)
+            .textFieldStyle(.plain)
+            .font(.system(size: 12))
+            .focused($searchFocused)
+            .onSubmit {
+                viewModel.pasteSelected()
+            }
+    }
+
+    @ViewBuilder
+    private var searchInput: some View {
+        if #available(macOS 14, *) {
+            searchTextField
                 .onKeyPress(.leftArrow) {
                     moveSelection(offset: -1)
                     return .handled
@@ -397,9 +444,17 @@ struct SnapshotBarView: View {
                     }
                     return .ignored
                 }
-                .onSubmit {
-                    viewModel.pasteSelected()
-                }
+        } else {
+            searchTextField
+        }
+    }
+
+    private var searchField: some View {
+        HStack(spacing: 6) {
+            Image(systemName: "magnifyingglass")
+                .font(.system(size: 11, weight: .medium))
+                .foregroundStyle(.secondary)
+            searchInput
         }
         .padding(.horizontal, 10)
         .padding(.vertical, 6)
@@ -630,7 +685,7 @@ struct SnapshotBarView: View {
                         visibleCardIDs = visible
                     }
                 }
-                .onChange(of: viewModel.scrollGeneration) { _, _ in
+                .onChange(of: viewModel.scrollGeneration) { _ in
                     guard let newID = viewModel.scrollRequestID else { return }
                     let scrollToStart = viewModel.suppressListAnimation || !viewModel.scrollAnimated
                     if scrollToStart {

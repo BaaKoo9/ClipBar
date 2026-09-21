@@ -182,18 +182,82 @@ private func testUpdatePolicy() {
         "ClipBar-1.0.11.dmg.sha256",
     ]
     expectEqual(
-        UpdatePolicy.preferredArtifactName(from: assets, version: "1.0.11"),
+        UpdatePolicy.preferredArtifactName(from: assets, version: "1.0.11", architecture: .arm64),
         "ClipBar-1.0.11.dmg",
         "自动更新应优先选择带校验文件的 DMG"
     )
     expectEqual(
         UpdatePolicy.preferredArtifactName(
             from: assets.filter { !$0.hasSuffix(".dmg.sha256") },
-            version: "1.0.11"
+            version: "1.0.11", architecture: .arm64
         ),
         "ClipBar-1.0.11.pkg",
         "DMG 缺少校验文件时应安全回退到 pkg"
     )
+}
+
+private func testArchitectureSpecificUpdates() throws {
+    func assets(_ names: [String]) -> [String] {
+        names.flatMap { [$0, "\($0).sha256"] }
+    }
+    let legacy = "ClipBar-1.0.12.dmg"
+    let all = assets([
+        legacy, "ClipBar-1.0.12-x86_64.pkg", "ClipBar-1.0.12-arm64.pkg",
+        "ClipBar-1.0.12-x86_64.dmg", "ClipBar-1.0.12-arm64.dmg",
+    ])
+    for architecture in UpdateArchitecture.allCases {
+        let own = "ClipBar-1.0.12-\(architecture.rawValue)"
+        let other = architecture == .arm64 ? "x86_64" : "arm64"
+        for ordering in [all, Array(all.reversed())] {
+            expectEqual(
+                UpdatePolicy.preferredArtifactName(from: ordering, version: "v1.0.12", architecture: architecture),
+                "\(own).dmg", "\(architecture) 不受附件顺序影响且优先自身 DMG"
+            )
+        }
+        expectEqual(
+            UpdatePolicy.preferredArtifactName(
+                from: all.filter { $0 != "\(own).dmg.sha256" }, version: "1.0.12", architecture: architecture
+            ), "\(own).pkg", "\(architecture) DMG 无校验时仅回退同架构 PKG"
+        )
+        for invalid in [
+            assets(["ClipBar-1.0.12-\(other).dmg"]),
+            assets(["ClipBar-1.0.13-\(architecture.rawValue).dmg"]),
+            assets(["Unrelated-1.0.12-\(architecture.rawValue).dmg"]),
+            ["\(own).dmg"], ["\(own).dmg.sha256"], [],
+        ] {
+            expect(
+                UpdatePolicy.preferredArtifactName(from: invalid, version: "1.0.12", architecture: architecture) == nil,
+                "\(architecture) 拒绝错误架构/版本/名称和缺失制品或校验"
+            )
+        }
+    }
+    expectEqual(
+        UpdatePolicy.preferredArtifactName(from: assets([legacy]), version: "1.0.12", architecture: .arm64),
+        legacy, "ARM 可兼容历史无架构文件名"
+    )
+    expect(
+        UpdatePolicy.preferredArtifactName(from: assets([legacy]), version: "1.0.12", architecture: .x86_64) == nil,
+        "Intel 绝不回退到历史 ARM 包"
+    )
+
+    let executable = FileManager.default.temporaryDirectory.appendingPathComponent("MachOTest-\(UUID().uuidString)")
+    defer { try? FileManager.default.removeItem(at: executable) }
+    for architecture in UpdateArchitecture.allCases {
+        var header = [UInt8](repeating: 0, count: 32)
+        header.replaceSubrange(0..<8, with: [0xcf, 0xfa, 0xed, 0xfe, architecture == .arm64 ? 12 : 7, 0, 0, 1])
+        header[12] = 2
+        try Data(header).write(to: executable)
+        expect(architecture.matchesExecutable(at: executable), "识别 \(architecture) 可执行头部")
+        let other: UpdateArchitecture = architecture == .arm64 ? .x86_64 : .arm64
+        expect(!other.matchesExecutable(at: executable), "拒绝实际二进制架构与下载名不符")
+        header[12] = 6
+        try Data(header).write(to: executable)
+        expect(!architecture.matchesExecutable(at: executable), "拒绝用动态库冒充更新程序")
+    }
+    for data in [Data(), Data([0xcf, 0xfa, 0xed, 0xfe]), Data(repeating: 0, count: 32)] {
+        try data.write(to: executable)
+        expect(!UpdateArchitecture.arm64.matchesExecutable(at: executable), "拒绝截断或无效 Mach-O")
+    }
 }
 
 private func testPaginationAndHistoryCounts() throws {
@@ -465,6 +529,40 @@ private func testPasteFile() throws {
     ) as? [URL]
 
     expect(urls?.map(\.path) == [fileURL.path], "文件引用已写入系统剪贴板")
+}
+
+private func testFilePasteCompatibility() throws {
+    let pasteboard = NSPasteboard.withUniqueName()
+    defer { pasteboard.releaseGlobally() }
+    let service = PasteService(pasteboard: pasteboard)
+    let directory = FileManager.default.temporaryDirectory
+        .appendingPathComponent("FilePasteCompatibility-\(UUID().uuidString)")
+    try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+    defer { try? FileManager.default.removeItem(at: directory) }
+    let paths = ["中文 空格 #%.txt", "second.pdf"].map {
+        directory.appendingPathComponent($0).path
+    }
+    for path in paths {
+        try Data("fixture".utf8).write(to: URL(fileURLWithPath: path))
+    }
+    for selectedPaths in [Array(paths.prefix(1)), paths] {
+        let item = ClipboardItem(
+            id: 99, kind: .file, text: nil, rtfPath: nil, imagePath: nil,
+            originalImagePath: nil, filePaths: selectedPaths, hash: "fixture",
+            pinned: false, createdAt: Date(), updatedAt: Date()
+        )
+        let hash = service.writeToPasteboard(item)
+        let urls = pasteboard.readObjects(
+            forClasses: [NSURL.self], options: [.urlReadingFileURLsOnly: true]
+        ) as? [URL]
+        expectEqual(urls?.map(\.path), selectedPaths, "文件回填保留现代 URL 格式、顺序及特殊字符")
+        expectEqual(
+            pasteboard.propertyList(forType: NSPasteboard.PasteboardType("NSFilenamesPboardType")) as? [String],
+            selectedPaths,
+            "文件回填同时提供传统文件列表供聊天应用读取"
+        )
+        expectEqual(hash, Hashing.sha256Hex(filePaths: selectedPaths), "文件回填 hash 与监听器一致")
+    }
 }
 
 private func testPasteImage() throws {
@@ -956,6 +1054,50 @@ private func testPasteHandoffPolicy() {
     )
 }
 
+private func testLegacyPanelKeyboardPolicy() {
+    func action(_ key: UInt16, command: Bool = false, modified: Bool = false,
+                searching: Bool = false, composing: Bool = false, editing: Bool = false) -> PanelInteractionPolicy.KeyAction? {
+        PanelInteractionPolicy.keyAction(keyCode: key, command: command, modified: modified,
+                                         searching: searching, composing: composing, editingOtherText: editing)
+    }
+    expectEqual(action(123), .left, "macOS 13 左键选择上一项")
+    expectEqual(action(124), .right, "macOS 13 右键选择下一项")
+    expectEqual(action(53), .close, "macOS 13 Esc 关闭面板")
+    expectEqual(action(36), .paste, "macOS 13 回车粘贴")
+    expectEqual(action(76), .paste, "macOS 13 数字键盘回车粘贴")
+    expectEqual(action(36, command: true), .enqueue, "macOS 13 Command-Return 入队")
+    expectEqual(action(3, command: true), .search, "macOS 13 Command-F 聚焦搜索")
+    expectEqual(action(123, searching: true), .left, "搜索中方向键仍选择卡片")
+    expectEqual(action(36, command: true, searching: true), .enqueue, "搜索中 Command-Return 入队")
+    expect(action(36, searching: true) == nil, "搜索回车交给 onSubmit，避免双粘贴")
+    expect(action(3) == nil, "普通文字不触发快捷键")
+    expect(action(123, modified: true, searching: true) == nil, "保留 Option/Control 编辑快捷键")
+    for key: UInt16 in [123, 124, 53, 36, 76, 3] {
+        expect(action(key, command: true, composing: true) == nil, "输入法组合期间不拦截按键")
+        expect(action(key, command: true, editing: true) == nil, "标签等其他编辑器不拦截按键")
+    }
+}
+
+/// 完整集成测试只暂时占用系统剪贴板；结束时恢复进入测试前的数据。
+private func withPreservedSystemPasteboard(_ body: () throws -> Void) rethrows {
+    let pasteboard = NSPasteboard.general
+    let saved = (pasteboard.pasteboardItems ?? []).map { item in
+        item.types.compactMap { type -> (NSPasteboard.PasteboardType, Data)? in
+            item.data(forType: type).map { (type, $0) }
+        }
+    }
+    defer {
+        pasteboard.clearContents()
+        let restored = saved.map { values in
+            let item = NSPasteboardItem()
+            for (type, data) in values { item.setData(data, forType: type) }
+            return item
+        }
+        if !restored.isEmpty { pasteboard.writeObjects(restored) }
+    }
+    try body()
+}
+
 // MARK: - 运行
 
 do {
@@ -964,6 +1106,7 @@ do {
     try testSearchMatchesText()
     try testUpdatePackageVerifier()
     testUpdatePolicy()
+    try testArchitectureSpecificUpdates()
     try testPaginationAndHistoryCounts()
     try testPinnedItemSurvivesLimitCleanup()
     try testPinnedItemsSortFirst()
@@ -977,12 +1120,16 @@ do {
     try testLabelsAssignAndFilter()
     testPanelInteractionPolicy()
     testPasteHandoffPolicy()
+    testLegacyPanelKeyboardPolicy()
+    try testFilePasteCompatibility()
     if shouldRunSystemIntegrationTests {
-        testPasteText()
-        try testPasteFile()
-        try testPasteImage()
-        testHotKeyRegistration()
-        try testRTFPastePreservesFormat()
+        try withPreservedSystemPasteboard {
+            testPasteText()
+            try testPasteFile()
+            try testPasteImage()
+            testHotKeyRegistration()
+            try testRTFPastePreservesFormat()
+        }
     } else {
         print("⏭️ 已跳过依赖系统剪贴板与全局热键权限的集成测试")
     }

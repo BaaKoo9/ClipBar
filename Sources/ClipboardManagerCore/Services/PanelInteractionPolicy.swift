@@ -1,5 +1,24 @@
 /// 面板选择与滚动策略。保持为纯函数，便于回归测试交互边界。
 public enum PanelInteractionPolicy {
+    public enum KeyAction: Equatable {
+        case left, right, close, paste, enqueue, search
+    }
+
+    /// macOS 13 键盘桥接策略：输入法组合和其他编辑器优先，搜索回车由 onSubmit 处理。
+    public static func keyAction(
+        keyCode: UInt16, command: Bool, modified: Bool,
+        searching: Bool, composing: Bool, editingOtherText: Bool
+    ) -> KeyAction? {
+        guard !composing, !editingOtherText, !modified else { return nil }
+        switch keyCode {
+        case 123: return .left
+        case 124: return .right
+        case 53: return .close
+        case 36, 76: return command ? .enqueue : (searching ? nil : .paste)
+        case 3: return command && !searching ? .search : nil
+        default: return nil
+        }
+    }
     public enum FocusIntent {
         case panelOpened
         case searchRequested
