@@ -30,8 +30,6 @@ struct SettingsView: View {
     @State private var hotKeyModifiers: UInt
     @State private var enqueueHotKeyCode: Int
     @State private var enqueueHotKeyModifiers: UInt
-    @State private var dequeueHotKeyCode: Int
-    @State private var dequeueHotKeyModifiers: UInt
     @State private var historyLimit: Int
     @State private var retentionEnabled: Bool
     @State private var retentionDays: Int
@@ -59,8 +57,6 @@ struct SettingsView: View {
         _hotKeyModifiers = State(initialValue: settings.hotKeyModifiers)
         _enqueueHotKeyCode = State(initialValue: settings.enqueueHotKeyCode)
         _enqueueHotKeyModifiers = State(initialValue: settings.enqueueHotKeyModifiers)
-        _dequeueHotKeyCode = State(initialValue: settings.dequeueHotKeyCode)
-        _dequeueHotKeyModifiers = State(initialValue: settings.dequeueHotKeyModifiers)
         _historyLimit = State(initialValue: settings.historyLimit)
         _retentionEnabled = State(initialValue: settings.retentionEnabled)
         _retentionDays = State(initialValue: settings.retentionDays)
@@ -222,19 +218,13 @@ struct SettingsView: View {
                 onChange: notifyHotKeyChanged
             )
             ShortcutRecorder(
-                title: "入队复制",
+                title: "队列开关",
                 keyCode: $enqueueHotKeyCode,
                 modifiers: $enqueueHotKeyModifiers,
                 onChange: notifyHotKeyChanged
             )
-            ShortcutRecorder(
-                title: "出队粘贴",
-                keyCode: $dequeueHotKeyCode,
-                modifiers: $dequeueHotKeyModifiers,
-                onChange: notifyHotKeyChanged
-            )
 
-            Text("入队复制把当前剪贴板内容加入粘贴队列；出队粘贴把队列下一条写回剪贴板并粘贴。")
+            Text("打开时：有选区则入队，没有则出空队列；之后的复制入队，粘贴出队。再按一次或点关闭则结束并清空。")
                 .font(.system(size: 11))
                 .foregroundStyle(.tertiary)
         }
@@ -246,8 +236,6 @@ struct SettingsView: View {
         settings.hotKeyModifiers = hotKeyModifiers
         settings.enqueueHotKeyCode = enqueueHotKeyCode
         settings.enqueueHotKeyModifiers = enqueueHotKeyModifiers
-        settings.dequeueHotKeyCode = dequeueHotKeyCode
-        settings.dequeueHotKeyModifiers = dequeueHotKeyModifiers
         NotificationCenter.default.post(name: .clipboardHotKeyChanged, object: nil)
     }
 

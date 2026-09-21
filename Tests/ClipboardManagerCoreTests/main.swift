@@ -1036,6 +1036,128 @@ private func testPanelInteractionPolicy() {
     )
 }
 
+private func testQueueSessionPolicy() {
+    expectEqual(
+        QueueSessionPolicy.toggleAction(isSessionActive: false),
+        .startSession,
+        "关闭时再按开关应开会话"
+    )
+    expectEqual(
+        QueueSessionPolicy.toggleAction(isSessionActive: true),
+        .endSession,
+        "会话中再按开关应结束并清空"
+    )
+    expectEqual(
+        QueueSessionPolicy.openSeedAction(didClipboardChange: true, isIgnoredApp: false),
+        .enqueueCurrentClipboard,
+        "注入复制后剪贴板变化应入队"
+    )
+    expectEqual(
+        QueueSessionPolicy.openSeedAction(didClipboardChange: false, isIgnoredApp: false),
+        .showEmptyQueue,
+        "没有选区时应唤出空队列"
+    )
+    expectEqual(
+        QueueSessionPolicy.openSeedAction(didClipboardChange: true, isIgnoredApp: true),
+        .showEmptyQueue,
+        "忽略名单 App 的复制不应入队"
+    )
+    expectEqual(
+        QueueSessionPolicy.openSeedAction(
+            didClipboardChange: false, isIgnoredApp: false, hasSelectedText: true
+        ),
+        .enqueueSelectedText,
+        "剪贴板没变但有选区时应入队选区"
+    )
+    expectEqual(
+        QueueSessionPolicy.pasteAction(
+            isSessionActive: false, queueCount: 2, isSecureInput: false, bypassPanelPaste: false
+        ),
+        .ignore,
+        "会话未开时普通粘贴应放行"
+    )
+    expectEqual(
+        QueueSessionPolicy.pasteAction(
+            isSessionActive: true, queueCount: 0, isSecureInput: false, bypassPanelPaste: false
+        ),
+        .swallowAndEnd,
+        "空队列粘贴应吞掉并结束会话"
+    )
+    expectEqual(
+        QueueSessionPolicy.pasteAction(
+            isSessionActive: true, queueCount: 3, isSecureInput: false, bypassPanelPaste: false
+        ),
+        .dequeueAndPass,
+        "队列有多项时应出队并放行粘贴"
+    )
+    expectEqual(
+        QueueSessionPolicy.pasteAction(
+            isSessionActive: true, queueCount: 1, isSecureInput: false, bypassPanelPaste: false
+        ),
+        .dequeueAndEnd,
+        "最后一项出队后应结束会话"
+    )
+    expectEqual(
+        QueueSessionPolicy.pasteAction(
+            isSessionActive: true, queueCount: 2, isSecureInput: true, bypassPanelPaste: false
+        ),
+        .ignore,
+        "安全输入里不应拦截粘贴"
+    )
+    expectEqual(
+        QueueSessionPolicy.pasteAction(
+            isSessionActive: true, queueCount: 2, isSecureInput: false, bypassPanelPaste: true
+        ),
+        .ignore,
+        "快照条粘贴应绕过队列"
+    )
+    expect(
+        QueueSessionPolicy.shouldEnqueueClipboardChange(
+            isSessionActive: true, isSelfWrite: false, isIgnoredApp: false, alreadyConsumed: false
+        ),
+        "会话中的普通复制应入队"
+    )
+    expect(
+        !QueueSessionPolicy.shouldEnqueueClipboardChange(
+            isSessionActive: true, isSelfWrite: true, isIgnoredApp: false, alreadyConsumed: false
+        ),
+        "自己写回剪贴板不应再入队"
+    )
+    expect(
+        !QueueSessionPolicy.shouldEnqueueClipboardChange(
+            isSessionActive: true, isSelfWrite: false, isIgnoredApp: true, alreadyConsumed: false
+        ),
+        "忽略名单 App 的剪贴板变化不应入队"
+    )
+    expect(
+        QueueSessionPolicy.shouldKeepSessionAfterClearingItems(),
+        "清空内容后应保持空窗会话"
+    )
+    expect(
+        QueueSessionPolicy.isPasteChord(keyCode: 9, carbonModifiers: 256),
+        "⌘V 应识别为出队粘贴"
+    )
+    expect(
+        QueueSessionPolicy.isPasteChord(keyCode: 9, carbonModifiers: 256 | 512),
+        "⇧⌘V 应识别为出队粘贴"
+    )
+    expect(
+        !QueueSessionPolicy.isPasteChord(keyCode: 9, carbonModifiers: 256 | 2048),
+        "⌥⌘V 不应当成队列出队"
+    )
+    expectEqual(
+        QueueSessionPolicy.pasteAction(
+            isSessionActive: true, queueCount: 2, isSecureInput: false, bypassPanelPaste: true
+        ),
+        .ignore,
+        "面板注入的粘贴不应出队"
+    )
+    expect(
+        !QueueSessionPolicy.isPasteChord(keyCode: 14, carbonModifiers: 256),
+        "⌘E 不应当成队列出队"
+    )
+}
+
 private func testPasteHandoffPolicy() {
     expectEqual(
         PasteHandoffPolicy.settleDelay(hasCapturedFocus: true, didRestoreFocus: true),
@@ -1119,6 +1241,7 @@ do {
     try testDeleteRecentImageFilesAfterImageUpsert()
     try testLabelsAssignAndFilter()
     testPanelInteractionPolicy()
+    testQueueSessionPolicy()
     testPasteHandoffPolicy()
     testLegacyPanelKeyboardPolicy()
     try testFilePasteCompatibility()

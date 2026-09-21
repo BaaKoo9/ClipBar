@@ -65,7 +65,7 @@ struct AboutView: View {
                 Text("本地优先、高性能、简约的 macOS 剪贴板管理器")
                     .font(.system(size: 13))
                     .foregroundStyle(.primary)
-                Label("键盘流：⌥⌘V 呼出 · ⌥⌘E 入队 · ⌥⌘D 出队", systemImage: "keyboard")
+                Label("键盘流：⌥⌘V 呼出 · ⌥⌘E 队列", systemImage: "keyboard")
                     .font(.system(size: 12))
                     .foregroundStyle(.secondary)
                 Label("零网络权限，所有数据仅存本机", systemImage: "lock.shield")

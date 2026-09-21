@@ -298,52 +298,61 @@ private struct QueueListView: View {
                         .onEnded { _ in onWindowDrag(true) }
                 )
 
-            ScrollViewReader { proxy in
-                ScrollView(.vertical, showsIndicators: items.count > Self.maxVisibleRows) {
-                    // 队列最多展示约 10 行：用 VStack 避免 LazyVStack 首条入队时不绘制
-                    VStack(alignment: .leading, spacing: 6) {
-                        ForEach(Array(items.enumerated()), id: \.element.id) { index, entry in
-                            QueueEntryRow(
-                                entry: entry,
-                                index: index,
-                                count: items.count,
-                                isDragging: reorderState.draggedID == entry.id,
-                                isDropTarget: reorderState.targetID == entry.id
-                                    && reorderState.draggedID != entry.id,
-                                onDelete: {
-                                    viewModel.removeQueueEntry(id: entry.id)
-                                },
-                                onMoveUp: {
-                                    viewModel.moveQueueEntry(id: entry.id, offset: -1)
-                                },
-                                onMoveDown: {
-                                    viewModel.moveQueueEntry(id: entry.id, offset: 1)
+            Group {
+                if items.isEmpty {
+                    Text("复制以加入队列")
+                        .font(.system(size: 12.5))
+                        .foregroundStyle(.secondary)
+                        .frame(maxWidth: .infinity, minHeight: 36, alignment: .leading)
+                } else {
+                    ScrollViewReader { proxy in
+                        ScrollView(.vertical, showsIndicators: items.count > Self.maxVisibleRows) {
+                            // 队列最多展示约 10 行：用 VStack 避免 LazyVStack 首条入队时不绘制
+                            VStack(alignment: .leading, spacing: 6) {
+                                ForEach(Array(items.enumerated()), id: \.element.id) { index, entry in
+                                    QueueEntryRow(
+                                        entry: entry,
+                                        index: index,
+                                        count: items.count,
+                                        isDragging: reorderState.draggedID == entry.id,
+                                        isDropTarget: reorderState.targetID == entry.id
+                                            && reorderState.draggedID != entry.id,
+                                        onDelete: {
+                                            viewModel.removeQueueEntry(id: entry.id)
+                                        },
+                                        onMoveUp: {
+                                            viewModel.moveQueueEntry(id: entry.id, offset: -1)
+                                        },
+                                        onMoveDown: {
+                                            viewModel.moveQueueEntry(id: entry.id, offset: 1)
+                                        }
+                                    )
+                                    .offset(
+                                        y: reorderState.draggedID == entry.id
+                                            ? queueDragOffset.height
+                                            : 0
+                                    )
+                                    .scaleEffect(reorderState.draggedID == entry.id ? 1.018 : 1)
+                                    .shadow(
+                                        color: Color.black.opacity(reorderState.draggedID == entry.id ? 0.18 : 0),
+                                        radius: 9,
+                                        y: 4
+                                    )
+                                    .zIndex(reorderState.draggedID == entry.id ? 10 : 0)
+                                    .highPriorityGesture(queueDragGesture(for: entry, index: index))
+                                    .id(queueRowID(entry.id))
                                 }
-                            )
-                            .offset(
-                                y: reorderState.draggedID == entry.id
-                                    ? queueDragOffset.height
-                                    : 0
-                            )
-                            .scaleEffect(reorderState.draggedID == entry.id ? 1.018 : 1)
-                            .shadow(
-                                color: Color.black.opacity(reorderState.draggedID == entry.id ? 0.18 : 0),
-                                radius: 9,
-                                y: 4
-                            )
-                            .zIndex(reorderState.draggedID == entry.id ? 10 : 0)
-                            .highPriorityGesture(queueDragGesture(for: entry, index: index))
-                            .id(queueRowID(entry.id))
+                            }
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                        }
+                        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+                        .onAppear {
+                            scrollToLatest(proxy)
+                        }
+                        .onChange(of: items.count) { _ in
+                            scrollToLatest(proxy)
                         }
                     }
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                }
-                .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
-                .onAppear {
-                    scrollToLatest(proxy)
-                }
-                .onChange(of: items.count) { _ in
-                    scrollToLatest(proxy)
                 }
             }
             .padding(.horizontal, 14)
@@ -403,9 +412,21 @@ private struct QueueListView: View {
             }
             .disabled(items.count < 2)
 
-            QueueHeaderButton(title: "清空", systemImage: "trash", isDestructive: true) {
+            QueueHeaderButton(title: "清空内容", systemImage: "trash", isDestructive: true) {
                 viewModel.clearQueue()
             }
+            .disabled(items.isEmpty)
+
+            Button(action: { viewModel.endQueueSession() }) {
+                Image(systemName: "xmark")
+                    .font(.system(size: 9.5, weight: .semibold))
+                    .foregroundStyle(Color.secondary.opacity(0.9))
+                    .frame(width: 24, height: 24)
+                    .background(Color.primary.opacity(0.08), in: Circle())
+            }
+            .buttonStyle(.plain)
+            .help("关闭队列")
+            .accessibilityLabel("关闭队列")
         }
     }
 

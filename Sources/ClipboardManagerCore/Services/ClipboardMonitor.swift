@@ -19,6 +19,12 @@ public final class ClipboardMonitor {
     /// 自己写回剪贴板的内容 hash，避免把回填操作再次记入历史。
     private var lastWrittenHash: String?
 
+    /// 队列会话：用户复制（且未被忽略）时通知，由面板决定是否入队。
+    public var onQueueEligibleChange: (() -> Void)?
+
+    /// 出队/面板粘贴等自写回的 changeCount，避免再入队。
+    private var ignoredQueueChangeCounts: Set<Int> = []
+
     /// 最近一次以图片入库的时刻：用于吞掉微信等随后追加的「图片文件」条目。
     private var lastImageIngestAt: CFAbsoluteTime = 0
 
@@ -51,6 +57,11 @@ public final class ClipboardMonitor {
         lastWrittenHash = hash
     }
 
+    /// 当前这次剪贴板变化不要再入队（自写回或开关已经消费过）。
+    public func ignoreCurrentChangeForQueue() {
+        ignoredQueueChangeCounts.insert(pasteboard.changeCount)
+    }
+
     private func poll() {
         let count = pasteboard.changeCount
         guard count != lastChangeCount else { return }
@@ -65,7 +76,11 @@ public final class ClipboardMonitor {
             return
         }
 
+        let skipQueue = ignoredQueueChangeCounts.remove(count) != nil
         process(items, sourceAppBundleID: sourceBundleID)
+        if !skipQueue {
+            onQueueEligibleChange?()
+        }
     }
 
     private func process(_ items: [NSPasteboardItem], sourceAppBundleID: String?) {

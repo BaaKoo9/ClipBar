@@ -742,7 +742,7 @@ struct SnapshotBarView: View {
             if viewModel.pasteQueue.count > 0 {
                 Text("队列 \(viewModel.pasteQueue.count) 项 · 侧边窗可查看")
             } else {
-                Text("\(viewModel.enqueueHotKeyLabel) 入队 · \(viewModel.dequeueHotKeyLabel) 出队")
+                Text("\(viewModel.enqueueHotKeyLabel) 开队列 · ⌘V 出队")
             }
         }
         .font(.system(size: 10))
