@@ -58,7 +58,7 @@ PKG 双击安装到「应用程序」；DMG 打开后将 `ClipBar.app` 拖入 **
 
 从 v1.0.12 起，应用内更新只选择与本机芯片匹配的安装包，DMG 优先、同架构 PKG 兜底。Apple Silicon 即使运行 Intel 版（Rosetta），也会更新为原生 ARM 版。无匹配包或有效校验时会停止自动安装。
 
-无架构后缀的 `ClipBar-x.y.z.pkg` / `.dmg` 仅作为旧版 ARM 更新器的兼容别名，**不适用于 Intel**。v1.0.11 及以前的官方包只有 ARM 版。
+从 v1.0.12 起仅提供带架构后缀的安装包。v1.0.11 及以前的官方包只有 ARM 版；旧版更新器不识别架构，建议手动下载 `arm64` 包覆盖升级一次，此后自动更新会按芯片匹配。
 
 ### 首次打开（未公证）
 
@@ -132,7 +132,7 @@ tccutil reset ListenEvent com.huxiaolong.ClipBar
 ./scripts/build-app.sh release x86_64  # dist/x86_64/ClipBar.app
 ./scripts/make-pkg.sh arm64           # Intel 改用 x86_64
 ./scripts/make-dmg.sh arm64           # Intel 改用 x86_64
-./scripts/make-release-artifacts.sh   # 两套制品、校验文件及旧版 ARM 兼容别名
+./scripts/make-release-artifacts.sh   # 两套分架构制品及校验文件，共 8 个附件
 ./scripts/install-local.sh release    # 构建本机原生架构并覆盖安装
 ./scripts/run-tests.sh          # 核心单元测试
 ```

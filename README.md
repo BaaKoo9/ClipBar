@@ -58,7 +58,7 @@ Double-click the PKG to install, or open the DMG and drag `ClipBar.app` into **A
 
 Starting with v1.0.12, in-app updates select only packages for the Mac's hardware architecture, preferring DMG with a same-architecture PKG fallback. An Intel build running under Rosetta on Apple Silicon migrates to the native ARM build. Automatic installation stops if a matching package or valid checksum is unavailable.
 
-Names without an architecture suffix (`ClipBar-x.y.z.pkg` / `.dmg`) are compatibility aliases for older ARM updaters, **not Intel downloads**. Official releases through v1.0.11 contain ARM binaries only.
+Starting with v1.0.12, all installers include an architecture suffix. Official releases through v1.0.11 contain ARM binaries only, and their updaters are not architecture-aware. A one-time manual upgrade using the `arm64` package is recommended; subsequent updates select the correct architecture.
 
 ### First open (not notarized)
 
@@ -132,7 +132,7 @@ macOS 13+ with Xcode Command Line Tools (full Xcode not required):
 ./scripts/build-app.sh release x86_64  # dist/x86_64/ClipBar.app
 ./scripts/make-pkg.sh arm64           # use x86_64 for Intel
 ./scripts/make-dmg.sh arm64           # use x86_64 for Intel
-./scripts/make-release-artifacts.sh   # both architectures, checksums and legacy ARM aliases
+./scripts/make-release-artifacts.sh   # both architectures and checksums, 8 assets
 ./scripts/install-local.sh release    # build and install the native architecture
 ./scripts/run-tests.sh          # core unit tests
 ```

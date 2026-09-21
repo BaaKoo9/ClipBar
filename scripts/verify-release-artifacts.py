@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""解包验证当前版本的两套制品和旧版 ARM 兼容别名，不安装或启动 App。"""
+"""解包验证当前版本的两套分架构制品，不安装或启动 App。"""
 import hashlib
 import pathlib
 import plistlib
@@ -77,6 +77,6 @@ for architecture in ("arm64", "x86_64"):
 
 for extension in ("pkg", "dmg"):
     legacy = DIST / f"ClipBar-{VERSION}.{extension}"
-    require(digest(legacy) == digest(DIST / f"ClipBar-{VERSION}-arm64.{extension}"), "旧版兼容别名必须与 ARM 包相同")
-    require(pathlib.Path(str(legacy) + ".sha256").read_text().split() == [digest(legacy), legacy.name], "兼容别名校验错误")
-print("两套制品、PKG/DMG 内容一致性及旧版 ARM 更新兼容别名均通过。")
+    require(not legacy.exists() and not pathlib.Path(str(legacy) + ".sha256").exists(),
+            "请移除无架构后缀的旧制品及校验文件，发布时仅保留 arm64 / x86_64 两套")
+print("两套分架构制品、PKG/DMG 内容一致性及明确命名检查均通过（8 个附件）。")
