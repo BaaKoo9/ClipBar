@@ -117,25 +117,25 @@ public final class AppSettings {
         set { defaults.set(newValue, forKey: Keys.hotKeyModifiers) }
     }
 
-    /// 入队复制快捷键：keyCode（默认 14 = E）。
+    /// 队列开关快捷键：keyCode（默认 14 = E）。
     public var enqueueHotKeyCode: Int {
         get { defaults.object(forKey: Keys.enqueueHotKeyCode) as? Int ?? 14 }
         set { defaults.set(newValue, forKey: Keys.enqueueHotKeyCode) }
     }
 
-    /// 入队复制快捷键：Carbon modifier 位掩码（默认 ⌥⌘ = 2304）。
+    /// 队列开关快捷键：Carbon modifier 位掩码（默认 ⌥⌘ = 2304）。
     public var enqueueHotKeyModifiers: UInt {
         get { defaults.object(forKey: Keys.enqueueHotKeyModifiers) as? UInt ?? (2048 | 256) }
         set { defaults.set(newValue, forKey: Keys.enqueueHotKeyModifiers) }
     }
 
-    /// 出队粘贴快捷键：keyCode（默认 2 = D）。
+    /// 旧版出队键，仅保留以免升级用户的 UserDefaults 报错；设置页不再暴露。
     public var dequeueHotKeyCode: Int {
         get { defaults.object(forKey: Keys.dequeueHotKeyCode) as? Int ?? 2 }
         set { defaults.set(newValue, forKey: Keys.dequeueHotKeyCode) }
     }
 
-    /// 出队粘贴快捷键：Carbon modifier 位掩码（默认 ⌥⌘ = 2304）。
+    /// 旧版出队键修饰位，仅保留 UserDefaults，设置页不再暴露。
     public var dequeueHotKeyModifiers: UInt {
         get { defaults.object(forKey: Keys.dequeueHotKeyModifiers) as? UInt ?? (2048 | 256) }
         set { defaults.set(newValue, forKey: Keys.dequeueHotKeyModifiers) }

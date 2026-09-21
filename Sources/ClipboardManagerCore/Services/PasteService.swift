@@ -87,6 +87,25 @@ public final class PasteService {
         NSWorkspace.shared.frontmostApplication?.processIdentifier
     }
 
+    /// 用辅助功能读前台焦点里的选区，不依赖注入 ⌘C。
+    public static func selectedText(from pid: pid_t) -> String? {
+        let application = AXUIElementCreateApplication(pid)
+        AXUIElementSetMessagingTimeout(application, 0.05)
+        let focus = focusedElement(pid: pid, application: application)
+        guard let element = focus.element else { return nil }
+        AXUIElementSetMessagingTimeout(element, 0.03)
+        var value: CFTypeRef?
+        let result = AXUIElementCopyAttributeValue(
+            element,
+            kAXSelectedTextAttribute as CFString,
+            &value
+        )
+        guard result == .success, let text = value as? String, !text.isEmpty else {
+            return nil
+        }
+        return text
+    }
+
     /// 在 ClipBar 抢占前台前记录目标输入控件，粘贴前可恢复光标位置。
     public static func captureTarget(pid: pid_t?) -> PasteTarget? {
         guard let pid else { return nil }
@@ -284,7 +303,7 @@ public final class PasteService {
         up?.postToPid(pid)
     }
 
-    /// 模拟 ⌘C：把当前选中内容复制到剪贴板（入队复制前置）。
+    /// 模拟 ⌘C：把当前选中内容复制到剪贴板（队列开关开会话时的入队前置）。
     public static func injectCommandC() {
         let source = CGEventSource(stateID: .hidSystemState)
         let down = CGEvent(keyboardEventSource: source, virtualKey: 8, keyDown: true)

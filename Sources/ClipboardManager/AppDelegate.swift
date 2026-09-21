@@ -29,6 +29,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         setupStatusItem()
         ensureKeepAlivePanel()
         ClipboardMonitor.shared.start()
+        ClipboardMonitor.shared.onQueueEligibleChange = { [weak self] in
+            self?.panelViewModel.enqueueFromClipboardIfSessionActive()
+        }
+        HotKeyService.shared.setPasteInterceptHandler { [weak self] in
+            guard let self else { return .pass }
+            return MainActor.assumeIsolated {
+                self.panelViewModel.handleSessionPaste()
+            }
+        }
         requestPermissionsIfNeeded()
         UpdateChecker.schedulePeriodicChecks()
         NotificationCenter.default.addObserver(
@@ -216,22 +225,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
             keyCode: settings.enqueueHotKeyCode,
             modifiers: settings.enqueueHotKeyModifiers
         ) { [weak self] in
-            self?.panelViewModel.enqueueFromClipboard()
+            self?.panelViewModel.toggleQueueSession()
         }
-
-        HotKeyService.shared.register(
-            tag: Self.dequeueHotKeyTag,
-            keyCode: settings.dequeueHotKeyCode,
-            modifiers: settings.dequeueHotKeyModifiers
-        ) { [weak self] in
-            self?.panelViewModel.dequeueAndPaste()
-        }
+        HotKeyService.shared.unregister(tag: Self.dequeueHotKeyTag)
 
         let status = HotKeyService.shared.status
         DebugLog.write(
             "快捷键注册完成：呼出 \(KeyCodeMapper.displayString(keyCode: settings.hotKeyCode, modifiers: settings.hotKeyModifiers)) / " +
-            "入队 \(KeyCodeMapper.displayString(keyCode: settings.enqueueHotKeyCode, modifiers: settings.enqueueHotKeyModifiers)) / " +
-            "出队 \(KeyCodeMapper.displayString(keyCode: settings.dequeueHotKeyCode, modifiers: settings.dequeueHotKeyModifiers)) | " +
+            "队列 \(KeyCodeMapper.displayString(keyCode: settings.enqueueHotKeyCode, modifiers: settings.enqueueHotKeyModifiers)) | " +
             "通道=\(status.description) carbon=\(status.carbonCount) tap=\(status.tapActive) listening=\(status.listening)"
         )
     }

@@ -31,9 +31,10 @@ final class PanelViewModel: ObservableObject {
     @Published private(set) var panelFocusGeneration: UInt = 0
     /// 本次滚动是否使用动画。
     private(set) var scrollAnimated = true
-    /// 底部提示中的入队/出队快捷键文案，随设置变更同步。
+    /// 底部提示中的队列开关快捷键文案，随设置变更同步。
     @Published var enqueueHotKeyLabel = ""
-    @Published var dequeueHotKeyLabel = ""
+    /// 侧边队列窗可见即会话进行中。
+    @Published private(set) var isQueueSessionActive = false
     /// 库里的总条数（不受首屏分页影响）。
     @Published private(set) var libraryCount = 0
     /// 当前筛选/搜索的匹配条数（同样不带 LIMIT）。
@@ -55,6 +56,12 @@ final class PanelViewModel: ObservableObject {
     private var searchWorkItem: DispatchWorkItem?
     private var filterWorkItem: DispatchWorkItem?
     private let enqueueQueue = DispatchQueue(label: "com.huxiaolong.clipboard.enqueue")
+    /// 快照条粘贴注入的 ⌘V 在此时间之前忽略，超时后下一次 ⌘V 必须出队。
+    private var ignoreSessionPasteUntil: CFAbsoluteTime = 0
+    /// 开关入队或自写回已经消费过的 changeCount，避免监听再入队一次。
+    private var consumedChangeCount: Int?
+    /// 开关注入 ⌘C 等待期间，避免监听和种子入队各加一次。
+    private var isSeedingQueue = false
     private var hotKeyObserver: NSObjectProtocol?
     private var historyLimitObserver: NSObjectProtocol?
     private var historyChangeObserver: NSObjectProtocol?
@@ -136,10 +143,6 @@ final class PanelViewModel: ObservableObject {
         enqueueHotKeyLabel = KeyCodeMapper.displayString(
             keyCode: settings.enqueueHotKeyCode,
             modifiers: settings.enqueueHotKeyModifiers
-        )
-        dequeueHotKeyLabel = KeyCodeMapper.displayString(
-            keyCode: settings.dequeueHotKeyCode,
-            modifiers: settings.dequeueHotKeyModifiers
         )
     }
 
@@ -553,6 +556,11 @@ final class PanelViewModel: ObservableObject {
         DebugLog.write("\(source)粘贴: \(item.kind.rawValue) \(item.previewLine.prefix(20))")
         if let hash = PasteService.shared.writeToPasteboard(item) {
             ClipboardMonitor.shared.ignore(hash: hash)
+            if isQueueSessionActive {
+                ClipboardMonitor.shared.ignoreCurrentChangeForQueue()
+                consumedChangeCount = NSPasteboard.general.changeCount
+                ignoreSessionPasteUntil = CFAbsoluteTimeGetCurrent() + 0.4
+            }
         }
         if AppSettings.shared.bumpOnPaste, item.id > 0 {
             ClipboardStore.shared.touch(id: item.id)
@@ -591,6 +599,11 @@ final class PanelViewModel: ObservableObject {
         }
         PasteService.activateAndPaste(target: target)
         DebugLog.write("粘贴路径 source=\(source) write=\(writeMilliseconds)ms → 注入")
+        if isQueueSessionActive {
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.35) { [weak self] in
+                self?.ignoreSessionPasteUntil = 0
+            }
+        }
     }
 
     // MARK: - 基础操作
@@ -619,19 +632,25 @@ final class PanelViewModel: ObservableObject {
 
     // MARK: - 粘贴队列
 
-    /// 面板内 ⌘+点击/⌘+回车：把当前选中项加入队列。
+    /// 面板内 ⌘+点击/⌘+回车：把当前选中项加入队列并开启会话。
     func enqueueSelected() {
         guard let item = selectedItem else { return }
         let count = pasteQueue.count + 1
         DebugLog.write("面板入队: \(item.kind.rawValue) \(item.previewLine.prefix(20)) count=\(count)")
         pasteQueue.append(PasteQueueEntry(item: item))
+        isQueueSessionActive = true
+        HotKeyService.shared.prepareSessionInterception()
         refreshQueueWindow()
     }
 
     func clearQueue() {
-        DebugLog.write("清空队列")
+        DebugLog.write("清空内容")
         pasteQueue = []
-        ToastWindowController.shared.hideQueue()
+        if isQueueSessionActive, QueueSessionPolicy.shouldKeepSessionAfterClearingItems() {
+            refreshQueueWindow()
+        } else {
+            ToastWindowController.shared.hideQueue()
+        }
     }
 
     func reverseQueue() {
@@ -666,44 +685,188 @@ final class PanelViewModel: ObservableObject {
         moveQueueEntry(id: id, over: pasteQueue[targetIndex].id)
     }
 
-    /// 全局快捷键：模拟普通复制（⌘C）后再把新剪贴板内容加入队列。
-    func enqueueFromClipboard() {
+    func toggleQueueSession() {
+        switch QueueSessionPolicy.toggleAction(isSessionActive: isQueueSessionActive) {
+        case .endSession:
+            endQueueSession()
+        case .startSession:
+            beginQueueSessionFromHotKey()
+        }
+    }
+
+    func endQueueSession() {
+        let remaining = pasteQueue.count
+        DebugLog.write("结束队列会话 count=\(remaining)")
+        pasteQueue = []
+        isQueueSessionActive = false
+        ignoreSessionPasteUntil = 0
+        consumedChangeCount = nil
+        isSeedingQueue = false
+        HotKeyService.shared.endSessionInterception()
+        ToastWindowController.shared.hideQueue()
+    }
+
+    /// 会话开着时，监听器送来的用户复制。
+    func enqueueFromClipboardIfSessionActive() {
+        guard !isSeedingQueue else { return }
+        let changeCount = NSPasteboard.general.changeCount
+        let alreadyConsumed = consumedChangeCount == changeCount
+        guard QueueSessionPolicy.shouldEnqueueClipboardChange(
+            isSessionActive: isQueueSessionActive,
+            isSelfWrite: false,
+            isIgnoredApp: isFrontmostIgnored,
+            alreadyConsumed: alreadyConsumed
+        ) else { return }
+        consumedChangeCount = changeCount
+        enqueueQueue.async { [weak self] in
+            self?.performEnqueueFromClipboard(markConsumed: false)
+        }
+    }
+
+    func handleSessionPaste() -> HotKeyService.PasteInterceptDecision {
+        let bypassPanelPaste = CFAbsoluteTimeGetCurrent() < ignoreSessionPasteUntil
+        let action = QueueSessionPolicy.pasteAction(
+            isSessionActive: isQueueSessionActive,
+            queueCount: pasteQueue.count,
+            isSecureInput: HotKeyService.isSecureEventInputEnabled,
+            bypassPanelPaste: bypassPanelPaste
+        )
+        if bypassPanelPaste {
+            DebugLog.write("会话粘贴：忽略面板注入的 ⌘V")
+        }
+        switch action {
+        case .ignore:
+            return .pass
+        case .swallowAndEnd:
+            DebugLog.write("空队列粘贴：结束会话")
+            endQueueSession()
+            return .consume
+        case .dequeueAndPass:
+            applyDequeueWrite()
+            refreshQueueWindow()
+            return .pass
+        case .dequeueAndEnd:
+            applyDequeueWrite()
+            endQueueSession()
+            return .pass
+        }
+    }
+
+    /// 全局快捷键：开会话，有选区则入队，否则出空队列。
+    private func beginQueueSessionFromHotKey() {
+        isQueueSessionActive = true
+        isSeedingQueue = true
+        let targetPID = PasteService.frontmostPID()
+        HotKeyService.shared.prepareSessionInterception()
+
         guard PasteService.hasAccessibilityPermission else {
-            enqueueQueue.async { [weak self] in
-                self?.performEnqueueFromClipboard()
-            }
+            isSeedingQueue = false
+            DebugLog.write("队列会话：无辅助功能，出空队列")
+            refreshQueueWindow()
+            ToastWindowController.shared.show(
+                title: "队列需要权限",
+                message: "系统设置里勾选后，请完全退出 ClipBar 再打开。授权不会对正在运行的进程立刻生效。",
+                systemImage: "exclamationmark.triangle"
+            )
             return
         }
+
+        if let pid = targetPID,
+           !isIgnored(pid: pid),
+           let selected = PasteService.selectedText(from: pid) {
+            DebugLog.write("队列会话：AX 选区入队 len=\(selected.count)")
+            isSeedingQueue = false
+            enqueueText(selected)
+            return
+        }
+
         let before = NSPasteboard.general.changeCount
-        if let pid = PasteService.frontmostPID() {
+        if let pid = targetPID {
             PasteService.injectCommandC(to: pid)
         } else {
             PasteService.injectCommandC()
         }
-        waitForPasteboardChange(before: before, deadline: CFAbsoluteTimeGetCurrent() + 0.5)
+        waitForPasteboardChange(
+            before: before,
+            targetPID: targetPID,
+            deadline: CFAbsoluteTimeGetCurrent() + 0.5
+        )
     }
 
     /// 高频轮询剪贴板变更：⌘C 通常 10–30ms 内生效，短间隔能显著降低入队的体感延迟。
-    private func waitForPasteboardChange(before: Int, deadline: CFAbsoluteTime) {
+    private func waitForPasteboardChange(before: Int, targetPID: pid_t?, deadline: CFAbsoluteTime) {
         if NSPasteboard.general.changeCount != before || CFAbsoluteTimeGetCurrent() >= deadline {
-            enqueueQueue.async { [weak self] in
-                self?.performEnqueueFromClipboard()
+            let didChange = NSPasteboard.general.changeCount != before
+            let selected = targetPID.flatMap { PasteService.selectedText(from: $0) }
+            let seedAction = QueueSessionPolicy.openSeedAction(
+                didClipboardChange: didChange,
+                isIgnoredApp: isFrontmostIgnored,
+                hasSelectedText: selected?.isEmpty == false
+            )
+            if seedAction == .enqueueCurrentClipboard {
+                consumedChangeCount = NSPasteboard.general.changeCount
+                ClipboardMonitor.shared.ignoreCurrentChangeForQueue()
+            }
+            isSeedingQueue = false
+            switch seedAction {
+            case .enqueueCurrentClipboard:
+                enqueueQueue.async { [weak self] in
+                    self?.performEnqueueFromClipboard(markConsumed: false)
+                }
+            case .enqueueSelectedText:
+                if let selected, !selected.isEmpty {
+                    enqueueText(selected)
+                } else {
+                    refreshQueueWindow()
+                }
+            case .showEmptyQueue:
+                refreshQueueWindow()
             }
             return
         }
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.006) { [weak self] in
-            self?.waitForPasteboardChange(before: before, deadline: deadline)
+            self?.waitForPasteboardChange(before: before, targetPID: targetPID, deadline: deadline)
         }
     }
 
-    private nonisolated func performEnqueueFromClipboard() {
+    private var isFrontmostIgnored: Bool {
+        guard let bundleID = NSWorkspace.shared.frontmostApplication?.bundleIdentifier else {
+            return false
+        }
+        return AppSettings.shared.ignoredApps.contains(bundleID)
+    }
+
+    private func isIgnored(pid: pid_t) -> Bool {
+        NSWorkspace.shared.runningApplications.first(where: { $0.processIdentifier == pid })
+            .flatMap(\.bundleIdentifier)
+            .map { AppSettings.shared.ignoredApps.contains($0) } ?? false
+    }
+
+    private func enqueueText(_ text: String) {
+        let item = ClipboardItem(
+            id: -1,
+            kind: text.hasPrefix("http://") || text.hasPrefix("https://") ? .link : .text,
+            text: text,
+            rtfPath: nil,
+            imagePath: nil,
+            originalImagePath: nil,
+            filePaths: [],
+            hash: Hashing.sha256Hex(text),
+            pinned: false,
+            createdAt: Date(),
+            updatedAt: Date()
+        )
+        enqueueAppend(item, markConsumed: false)
+    }
+
+    private nonisolated func performEnqueueFromClipboard(markConsumed: Bool) {
         let pasteboard = NSPasteboard.general
 
         // 图片优先（截图工具可能同时提供图片数据和文件引用）
         if let imageData = pasteboard.data(forType: .png) ?? pasteboard.data(forType: .tiff) {
             let hash = Hashing.sha256Hex(imageData)
             if let existing = ClipboardStore.shared.itemSync(hash: hash) {
-                enqueueAppend(existing)
+                enqueueAppend(existing, markConsumed: markConsumed)
                 return
             }
             if let (original, thumb) = saveImageSync(data: imageData, hash: hash) {
@@ -720,7 +883,7 @@ final class PanelViewModel: ObservableObject {
                     createdAt: Date(),
                     updatedAt: Date()
                 )
-                enqueueAppend(item)
+                enqueueAppend(item, markConsumed: markConsumed)
             }
             return
         }
@@ -740,7 +903,7 @@ final class PanelViewModel: ObservableObject {
                 createdAt: Date(),
                 updatedAt: Date()
             )
-            enqueueAppend(item)
+            enqueueAppend(item, markConsumed: markConsumed)
             return
         }
 
@@ -763,71 +926,49 @@ final class PanelViewModel: ObservableObject {
                 createdAt: Date(),
                 updatedAt: Date()
             )
-            enqueueAppend(item)
+            enqueueAppend(item, markConsumed: markConsumed)
             return
         }
 
-        Task { @MainActor in
-            ToastWindowController.shared.show(
-                title: "无法入队",
-                message: "剪贴板为空或不支持的类型",
-                systemImage: "exclamationmark.triangle"
-            )
+        Task { @MainActor [weak self] in
+            // 会话已开：不支持的类型就维持空窗，不再打断。
+            self?.refreshQueueWindow()
         }
     }
 
-    private nonisolated func enqueueAppend(_ item: ClipboardItem) {
+    private nonisolated func enqueueAppend(_ item: ClipboardItem, markConsumed: Bool) {
         Task { @MainActor [weak self] in
             guard let self else { return }
             self.pasteQueue.append(PasteQueueEntry(item: item))
+            self.isQueueSessionActive = true
+            if markConsumed {
+                self.consumedChangeCount = NSPasteboard.general.changeCount
+                ClipboardMonitor.shared.ignoreCurrentChangeForQueue()
+            }
             DebugLog.write("入队[速]: \(item.kind.rawValue) \(item.previewLine.prefix(20)) count=\(self.pasteQueue.count)")
             self.refreshQueueWindow()
         }
     }
 
-    /// 全局快捷键：从队列取出下一个写回剪贴板并粘贴。
-    func dequeueAndPaste() {
-        guard !pasteQueue.isEmpty else {
-            ToastWindowController.shared.show(
-                title: "队列为空",
-                message: "先用入队复制（⌥⌘E）收集内容",
-                systemImage: "list.number"
-            )
-            return
-        }
+    private func applyDequeueWrite() {
+        guard !pasteQueue.isEmpty else { return }
         let item = pasteQueue.removeFirst().item
-        let remaining = pasteQueue.count
-        DebugLog.write("出队: \(item.kind.rawValue) \(item.previewLine.prefix(20)) 剩余=\(remaining)")
-        // 先记住目标：deactivate 之后 frontmostApplication 会变。
-        let target = PasteService.frontmostPID()
+        DebugLog.write("会话出队: \(item.kind.rawValue) \(item.previewLine.prefix(20)) 剩余=\(self.pasteQueue.count)")
         if let hash = PasteService.shared.writeToPasteboard(item) {
             ClipboardMonitor.shared.ignore(hash: hash)
+            ClipboardMonitor.shared.ignoreCurrentChangeForQueue()
         }
+        consumedChangeCount = NSPasteboard.general.changeCount
         if AppSettings.shared.bumpOnPaste, item.id > 0 {
             ClipboardStore.shared.touch(id: item.id)
         }
-        if PasteService.hasAccessibilityPermission {
-            // 出队语义 = 粘贴：有权限就注入，不依赖自动粘贴开关
-            if NSApp.isActive {
-                NSApp.deactivate()
-            }
-            PasteService.activateAndPaste(pid: target)
-        } else {
-            DebugLog.write("出队：无辅助功能权限，仅写回剪贴板")
-            ToastWindowController.shared.show(
-                title: "已写入剪贴板",
-                message: "未授权辅助功能，请手动 ⌘V；可在设置中开启",
-                systemImage: "exclamationmark.triangle"
-            )
-        }
-        refreshQueueWindow()
     }
 
     private func refreshQueueWindow() {
-        if pasteQueue.isEmpty {
-            ToastWindowController.shared.hideQueue()
-        } else {
+        if isQueueSessionActive {
             ToastWindowController.shared.showQueue(viewModel: self)
+        } else {
+            ToastWindowController.shared.hideQueue()
         }
     }
 

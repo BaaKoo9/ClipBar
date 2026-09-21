@@ -28,7 +28,7 @@ Summon with a hotkey, pick with arrow keys, paste with Enter — without leaving
 ## Highlights
 
 - **Snapshot bar** — horizontal cards with type filters and custom labels
-- **Sequential paste** — enqueue, drag-reorder, reverse, or remove items in the side queue
+- **Sequential paste** — toggle a queue session: copies enqueue, regular paste dequeues; reorder, reverse, or clear items in the side window
 - **Instant search** — keyword highlight; `#tag` jumps to a label
 - **Local-first privacy** — clipboard history stays on your Mac (SQLite + media cache)
 - **Zero third-party deps** — Swift + SwiftUI + AppKit only
@@ -97,14 +97,14 @@ This does not delete clipboard history or settings. Do not remove `~/Library/App
 | Action | Default shortcut |
 |---|---|
 | Summon / dismiss panel | `⌥⌘V` |
-| Enqueue (copy selection + queue) | `⌥⌘E` |
-| Dequeue paste | `⌥⌘D` |
+| Toggle paste queue | `⌥⌘E` |
+| Dequeue | `⌘V` (while the queue session is open) |
 | Select in panel | `←` `→` |
 | Paste selection | `Enter` or click |
-| Enqueue from panel | `⌘`-click or hover `⊕` |
+| Enqueue from panel | `⌘`-click or `⌘↵` |
 | Activate search | Click the search field or `⌘F` |
 
-All shortcuts are customizable in Settings.
+The first time you open the queue, a selection is enqueued; otherwise the window opens empty. While the session is open, copies enqueue and `⌘V` dequeues. Press the toggle again or click close to end the session and clear the queue. The queue toggle is customizable in Settings.
 
 <p align="center">
   <img src="docs/images/settings.png?v=20260812orig" width="720" alt="ClipBar settings" />
@@ -164,7 +164,7 @@ Covers insert/fetch, dedup, search, pin protection, clear, paste-back for text/i
 
 - [x] Clipboard monitor & local store
 - [x] Snapshot bar, search, paste-back
-- [x] Custom hotkeys (summon / enqueue / dequeue)
+- [x] Custom hotkeys (summon / queue toggle)
 - [x] Sequential paste, pin, ignore apps, launch at login
 - [x] App icon, pkg + dmg, about window
 - [x] Queue side panel; custom labels; update checks

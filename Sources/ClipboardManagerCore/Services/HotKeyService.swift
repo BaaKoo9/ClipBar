@@ -22,6 +22,9 @@ private let tapCallback: CGEventTapCallBack = { _, type, event, _ in
         HotKeyService.shared.fire(tag: tag, source: "tap")
         return nil
     }
+    if HotKeyService.shared.consumePasteIfNeeded(keyCode: keyCode, modifiers: carbonFlags) {
+        return nil
+    }
     // 诊断：按键码命中任一注册，但修饰键不符 → 便于发现「按了没反应」是匹配问题
     HotKeyService.shared.logNearMissIfNeeded(keyCode: keyCode, modifiers: carbonFlags, source: "tap")
     return Unmanaged.passUnretained(event)
@@ -104,8 +107,12 @@ public final class HotKeyService {
     private var lastFireTag: UInt32 = 0
     private var lastFireTime: CFAbsoluteTime = 0
     private var lastNearMissTime: CFAbsoluteTime = 0
+    private var lastPasteInterceptTime: CFAbsoluteTime = 0
+    private var lastPasteDidConsume = false
 
     private static let carbonSignature: OSType = 0x434C4950 // 'CLIP'
+    private static let sessionPasteTag: UInt32 = 100
+    private static let sessionPasteAndMatchTag: UInt32 = 101
 
     private init() {
         lastAccessibilityAvailable = Self.isAccessibilityAvailable
@@ -130,7 +137,12 @@ public final class HotKeyService {
         lastSecureInputEnabled = Self.isSecureEventInputEnabled
     }
 
+    private static var didPromptAccessibility = false
+    private static var didPromptListening = false
+
     public static func requestAccessibilityAccess() {
+        guard !didPromptAccessibility, !isAccessibilityAvailable else { return }
+        didPromptAccessibility = true
         let options = [kAXTrustedCheckOptionPrompt.takeUnretainedValue() as String: true] as CFDictionary
         AXIsProcessTrustedWithOptions(options)
     }
@@ -141,7 +153,113 @@ public final class HotKeyService {
 
     @discardableResult
     public static func requestListeningAccess() -> Bool {
-        CGRequestListenEventAccess()
+        if isListeningAvailable { return true }
+        guard !didPromptListening else { return isListeningAvailable }
+        didPromptListening = true
+        return CGRequestListenEventAccess()
+    }
+
+    public enum PasteInterceptDecision {
+        case pass
+        case consume
+    }
+
+    private var pasteInterceptHandler: (() -> PasteInterceptDecision)?
+
+    public func setPasteInterceptHandler(_ handler: (() -> PasteInterceptDecision)?) {
+        lock.lock()
+        pasteInterceptHandler = handler
+        lock.unlock()
+    }
+
+    /// 会话开着时拦 ⌘V / ⇧⌘V。返回 true 表示吞掉，false 表示放行（出队后仍要贴出去）。
+    func consumePasteIfNeeded(keyCode: Int, modifiers: UInt) -> Bool {
+        guard QueueSessionPolicy.isPasteChord(keyCode: keyCode, carbonModifiers: modifiers) else {
+            return false
+        }
+        if let tag = matchedTag(keyCode: keyCode, modifiers: modifiers),
+           tag != Self.sessionPasteTag,
+           tag != Self.sessionPasteAndMatchTag {
+            return false
+        }
+        lock.lock()
+        let now = CFAbsoluteTimeGetCurrent()
+        if now - lastPasteInterceptTime < 0.08 {
+            let consume = lastPasteDidConsume
+            lock.unlock()
+            return consume
+        }
+        lastPasteInterceptTime = now
+        let handler = pasteInterceptHandler
+        lock.unlock()
+        guard let handler else { return false }
+        let decision: PasteInterceptDecision
+        if Thread.isMainThread {
+            decision = handler()
+        } else {
+            var captured = PasteInterceptDecision.pass
+            DispatchQueue.main.sync { captured = handler() }
+            decision = captured
+        }
+        let consume = decision == .consume
+        lock.lock()
+        lastPasteDidConsume = consume
+        lock.unlock()
+        return consume
+    }
+
+    public func prepareSessionInterception() {
+        ensureTapHealthy()
+        ensureMonitorInstalled()
+        // Event Tap 能放行原 ⌘V；只有 Tap 没装上时才用 Carbon 收键再注入。
+        setSessionPasteCarbonEnabled(Self.isAccessibilityAvailable && !status.tapActive)
+    }
+
+    public func endSessionInterception() {
+        setSessionPasteCarbonEnabled(false)
+    }
+
+    /// Carbon 不依赖 Event Tap：会话中把 ⌘V 收过来，出队后再注入一次。
+    private func setSessionPasteCarbonEnabled(_ enabled: Bool) {
+        if !enabled {
+            unregister(tag: Self.sessionPasteTag)
+            unregister(tag: Self.sessionPasteAndMatchTag)
+            return
+        }
+        register(
+            tag: Self.sessionPasteTag,
+            keyCode: QueueSessionPolicy.pasteKeyCode,
+            modifiers: QueueSessionPolicy.commandModifier
+        ) { [weak self] in
+            self?.handleSessionPasteCarbon()
+        }
+        let shiftCommand = QueueSessionPolicy.commandModifier | QueueSessionPolicy.shiftModifier
+        if matchedTag(keyCode: QueueSessionPolicy.pasteKeyCode, modifiers: shiftCommand) == nil {
+            register(
+                tag: Self.sessionPasteAndMatchTag,
+                keyCode: QueueSessionPolicy.pasteKeyCode,
+                modifiers: shiftCommand
+            ) { [weak self] in
+                self?.handleSessionPasteCarbon()
+            }
+        }
+    }
+
+    private func handleSessionPasteCarbon() {
+        let decision: PasteInterceptDecision
+        if Thread.isMainThread {
+            decision = pasteInterceptHandler?() ?? .pass
+        } else {
+            var captured = PasteInterceptDecision.pass
+            DispatchQueue.main.sync { captured = self.pasteInterceptHandler?() ?? .pass }
+            decision = captured
+        }
+        guard decision == .pass else { return }
+        if let pid = PasteService.frontmostPID() {
+            PasteService.injectCommandV(to: pid)
+        } else {
+            PasteService.injectCommandV()
+        }
     }
 
     public var status: Status {
@@ -402,6 +520,8 @@ public final class HotKeyService {
         let keyCode = Int(event.keyCode)
         if let tag = matchedTag(keyCode: keyCode, modifiers: carbonFlags) {
             fire(tag: tag, source: "monitor")
+        } else if consumePasteIfNeeded(keyCode: keyCode, modifiers: carbonFlags) {
+            DebugLog.write("队列粘贴：全局监听无法吞掉空队列 ⌘V")
         } else {
             logNearMissIfNeeded(keyCode: keyCode, modifiers: carbonFlags, source: "monitor")
         }
