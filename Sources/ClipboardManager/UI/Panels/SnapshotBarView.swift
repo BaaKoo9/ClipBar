@@ -4,6 +4,7 @@ import SwiftUI
 
 /// 屏幕底部的快照条：分类筛选 + 横向卡片列表 + 搜索 + 键盘导航。
 struct SnapshotBarView: View {
+    @Environment(\.colorScheme) private var colorScheme
     @ObservedObject var viewModel: PanelViewModel
     @FocusState private var searchFocused: Bool
     @FocusState private var panelFocused: Bool
@@ -19,12 +20,12 @@ struct SnapshotBarView: View {
     @State private var labelPendingDelete: ClipboardLabel?
     @State private var visibleCardIDs: Set<Int64> = []
 
-    /// 所有类型统一卡片尺寸（略回正，避免偏瘦高）。
-    private static let cardWidth: CGFloat = 152
-    private static let cardHeight: CGFloat = 140
+    /// 所有类型统一卡片尺寸。
+    private static let cardWidth: CGFloat = 176
+    private static let cardHeight: CGFloat = 164
     private static let cardSpacing: CGFloat = 10
     /// 与 BottomPanelController 保持一致。
-    static let panelHeight: CGFloat = 318
+    static let panelHeight: CGFloat = 258
     private static let scrollCoordinateSpace = "clipbar.snapshot-scroll"
     private static let labelCoordinateSpace = "clipbar.label-scroll"
 
@@ -45,7 +46,7 @@ struct SnapshotBarView: View {
                     snapshotScroller
                 }
             }
-            .frame(height: Self.cardHeight + 16)
+            .frame(height: Self.cardHeight + 12)
             .frame(maxWidth: .infinity)
 
             Divider().opacity(0.55)
@@ -53,20 +54,15 @@ struct SnapshotBarView: View {
         }
         // 入队提示改由侧边队列窗承担，面板内不再插入 queueBar，避免顶起卡片行
         .frame(minWidth: 560, maxWidth: .infinity, minHeight: Self.panelHeight, maxHeight: Self.panelHeight)
-        .background {
-            ZStack {
-                RoundedRectangle(cornerRadius: 20, style: .continuous)
-                    .fill(.regularMaterial)
-                RoundedRectangle(cornerRadius: 20, style: .continuous)
-                    .fill(BrandTheme.panelWash)
-            }
-        }
+        .background(
+            RoundedRectangle(cornerRadius: 20, style: .continuous)
+                .fill(colorScheme == .dark ? BrandTheme.panelBackgroundDark : BrandTheme.panelBackgroundLight)
+        )
         .clipShape(RoundedRectangle(cornerRadius: 20, style: .continuous))
         .overlay(
             RoundedRectangle(cornerRadius: 20, style: .continuous)
                 .stroke(BrandTheme.panelStroke, lineWidth: 1)
         )
-        .shadow(color: Color.black.opacity(0.28), radius: 36, y: 12)
     }
 
     @ViewBuilder
@@ -119,10 +115,15 @@ struct SnapshotBarView: View {
     private var snapshotContent: some View {
         keyboardSurface
         .onAppear {
-            applyFocus(for: .panelOpened)
+            if viewModel.isPanelOpen { applyFocus(for: .panelOpened) }
         }
-        .onChange(of: viewModel.panelFocusGeneration) { _ in
-            applyFocus(for: .panelOpened)
+        .onChange(of: viewModel.panelFocusGeneration) { generation in
+            searchFocused = false
+            DispatchQueue.main.async {
+                guard viewModel.isPanelOpen,
+                      viewModel.panelFocusGeneration == generation else { return }
+                applyFocus(for: .panelOpened)
+            }
         }
         .onChange(of: viewModel.searchText) { _ in
             viewModel.searchDidChange()
@@ -671,7 +672,7 @@ struct SnapshotBarView: View {
 
                         Color.clear.frame(width: 14)
                     }
-                    .padding(.vertical, 8)
+                    .padding(.vertical, 6)
                 }
                 .coordinateSpace(name: Self.scrollCoordinateSpace)
                 .onPreferenceChange(SnapshotCardFramePreferenceKey.self) { frames in
@@ -754,7 +755,27 @@ struct SnapshotBarView: View {
 
 // MARK: - 分类筛选 Chip
 
+private enum PanelSelectionStyle {
+    static let marker = Color.primary.opacity(0.78)
+    static let fill = Color.primary.opacity(0.82)
+
+    static func foreground(for colorScheme: ColorScheme) -> Color {
+        colorScheme == .dark ? BrandTheme.inkTop : .white
+    }
+
+    static func labelFill(isSelected: Bool, isDropTarget: Bool) -> Color {
+        if isSelected {
+            return fill
+        }
+        if isDropTarget {
+            return marker.opacity(0.13)
+        }
+        return Color.primary.opacity(0.08)
+    }
+}
+
 private struct FilterChip: View {
+    @Environment(\.colorScheme) private var colorScheme
     enum Style {
         case brandFill
         case labelDot
@@ -800,32 +821,26 @@ private struct FilterChip: View {
     }
 
     private var foreground: Color {
-        switch style {
-        case .brandFill:
-            return isSelected ? BrandTheme.inkTop : .secondary
-        case .labelDot:
-            return isSelected ? .primary.opacity(0.92) : .secondary
-        }
+        isSelected ? PanelSelectionStyle.foreground(for: colorScheme) : .secondary
     }
 
     private var fill: Color {
         switch style {
         case .brandFill:
-            return isSelected ? BrandTheme.accent.opacity(0.92) : Color.primary.opacity(0.10)
+            return isSelected ? PanelSelectionStyle.fill : Color.primary.opacity(0.10)
         case .labelDot:
-            if isDropTarget {
-                return BrandTheme.selectedStroke.opacity(0.13)
-            }
-            return isSelected ? Color.primary.opacity(0.12) : Color.primary.opacity(0.08)
+            return PanelSelectionStyle.labelFill(isSelected: isSelected, isDropTarget: isDropTarget)
         }
     }
 
     private var stroke: Color {
-        style == .labelDot && (isSelected || isDropTarget) ? BrandTheme.selectedStroke : .clear
+        style == .labelDot && (isSelected || isDropTarget) ? PanelSelectionStyle.marker : .clear
     }
 }
 
 private struct LabelFilterChip: View {
+    @Environment(\.colorScheme) private var colorScheme
+
     let label: ClipboardLabel
     let isSelected: Bool
     let isDropTarget: Bool
@@ -839,7 +854,7 @@ private struct LabelFilterChip: View {
             Text(label.name)
                 .font(.system(size: 11, weight: isSelected ? .semibold : .medium))
         }
-        .foregroundStyle(isSelected ? Color.primary.opacity(0.92) : Color.secondary)
+        .foregroundStyle(isSelected ? PanelSelectionStyle.foreground(for: colorScheme) : Color.secondary)
         .padding(.horizontal, 11)
         .padding(.vertical, 5)
         .background(
@@ -849,7 +864,7 @@ private struct LabelFilterChip: View {
         .overlay(
             Capsule(style: .continuous)
                 .stroke(
-                    isSelected || isDropTarget ? BrandTheme.selectedStroke : .clear,
+                    isSelected || isDropTarget ? PanelSelectionStyle.marker : .clear,
                     lineWidth: isDropTarget ? 1.5 : (isSelected ? 1.25 : 0)
                 )
         )
@@ -864,10 +879,7 @@ private struct LabelFilterChip: View {
     }
 
     private var fill: Color {
-        if isDropTarget {
-            return BrandTheme.selectedStroke.opacity(0.13)
-        }
-        return isSelected ? Color.primary.opacity(0.12) : Color.primary.opacity(0.08)
+        PanelSelectionStyle.labelFill(isSelected: isSelected, isDropTarget: isDropTarget)
     }
 }
 
@@ -961,12 +973,12 @@ private struct SnapshotCard: View, Equatable {
                     onSelect()
                 }
             } label: {
-                VStack(alignment: .leading, spacing: 6) {
+                VStack(alignment: .leading, spacing: 7) {
                     headerRow
                     contentBody
                     footerRow
                 }
-                .padding(10)
+                .padding(12)
                 .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
                 .background(
                     RoundedRectangle(cornerRadius: 14, style: .continuous)
@@ -981,7 +993,7 @@ private struct SnapshotCard: View, Equatable {
                     RoundedRectangle(cornerRadius: 14, style: .continuous)
                         .stroke(
                             isSelected
-                                ? BrandTheme.selectedStroke
+                                ? PanelSelectionStyle.marker
                                 : Color.primary.opacity(isHovering ? 0.16 : 0.08),
                             lineWidth: isSelected ? 2 : 1
                         )
@@ -1020,13 +1032,13 @@ private struct SnapshotCard: View, Equatable {
     private var headerRow: some View {
         HStack(spacing: 5) {
             Text("\(index)")
-                .font(.system(size: 12, weight: .bold).monospacedDigit())
+                .font(.system(size: 13, weight: .bold).monospacedDigit())
                 .foregroundStyle(Color.secondary.opacity(0.9))
                 .frame(width: 16, alignment: .leading)
 
             Image(systemName: iconName)
                 .font(.system(size: 10, weight: .semibold))
-                .foregroundStyle(isSelected ? BrandTheme.selectedStroke : Color.primary.opacity(0.55))
+                .foregroundStyle(isSelected ? PanelSelectionStyle.marker : Color.primary.opacity(0.55))
 
             Spacer(minLength: 0)
 
@@ -1047,7 +1059,7 @@ private struct SnapshotCard: View, Equatable {
             if item.pinned {
                 Image(systemName: "pin.fill")
                     .font(.system(size: 9))
-                    .foregroundStyle(BrandTheme.selectedStroke)
+                    .foregroundStyle(PanelSelectionStyle.marker)
             }
         }
     }
@@ -1099,8 +1111,8 @@ private struct SnapshotCard: View, Equatable {
 
     private func previewText(_ text: Text) -> some View {
         text
-            .font(.system(size: 12))
-            .lineLimit(3)
+            .font(.system(size: 13))
+            .lineLimit(4)
             .lineSpacing(1)
             .multilineTextAlignment(.leading)
             .foregroundStyle(.primary.opacity(0.92))
@@ -1117,7 +1129,7 @@ private struct SnapshotCard: View, Equatable {
         var searchStart = lowerText.startIndex
         while let range = lowerText.range(of: lowerQuery, range: searchStart..<lowerText.endIndex) {
             if let attrRange = Range(range, in: attributed) {
-                attributed[attrRange].font = .system(size: 12, weight: .bold)
+                attributed[attrRange].font = .system(size: 13, weight: .bold)
                 attributed[attrRange].foregroundColor = Color(red: 0.12, green: 0.10, blue: 0.06)
                 attributed[attrRange].backgroundColor = BrandTheme.searchHit.opacity(0.92)
             }

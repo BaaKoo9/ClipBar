@@ -4,6 +4,10 @@ import ServiceManagement
 import SwiftUI
 
 struct SettingsView: View {
+    private enum FullDiskAccessStatus {
+        case granted, denied, unknown
+    }
+
     private enum Pane: String, CaseIterable, Identifiable {
         case shortcuts = "快捷键"
         case general = "通用"
@@ -50,6 +54,7 @@ struct SettingsView: View {
     @State private var labelPendingDelete: ClipboardLabel?
     @State private var generalDirty = false
     @State private var generalSaveFlash = false
+    @State private var fullDiskAccessStatus: FullDiskAccessStatus = .unknown
     @FocusState private var retentionFieldFocused: Bool
     @ObservedObject private var updateProgress = UpdateProgressModel.shared
 
@@ -113,6 +118,9 @@ struct SettingsView: View {
         }
         .onReceive(NotificationCenter.default.publisher(for: .clipboardUpdateAvailable)) { _ in
             refreshUpdateState()
+        }
+        .onReceive(NotificationCenter.default.publisher(for: NSApplication.didBecomeActiveNotification)) { _ in
+            if selectedPane == .privacy { refreshFullDiskAccessStatus() }
         }
     }
 
@@ -466,9 +474,9 @@ struct SettingsView: View {
             sectionTitle("隐私")
 
             VStack(alignment: .leading, spacing: 6) {
-                Text("建议开启完整磁盘访问权限")
+                Text(fullDiskAccessTitle)
                     .font(.system(size: 12, weight: .medium))
-                Text("为改善受保护目录中文件的复制与粘贴兼容性，建议在「系统设置 → 隐私与安全性 → 完整磁盘访问权限」中添加并开启 ClipBar，然后重新启动应用。此权限为建议项。")
+                Text(fullDiskAccessMessage)
                     .font(.system(size: 11))
                     .foregroundStyle(.secondary)
                 Button("打开完整磁盘访问设置") {
@@ -481,6 +489,7 @@ struct SettingsView: View {
             .padding(10)
             .frame(maxWidth: .infinity, alignment: .leading)
             .background(Color.primary.opacity(0.04), in: RoundedRectangle(cornerRadius: 8))
+            .onAppear(perform: refreshFullDiskAccessStatus)
 
             Text("忽略名单中的应用，其复制内容不会写入历史。")
                 .font(.system(size: 11))
@@ -594,6 +603,41 @@ struct SettingsView: View {
                 .font(.system(size: 11))
                 .foregroundStyle(.tertiary)
         }
+    }
+
+    private var fullDiskAccessTitle: String {
+        switch fullDiskAccessStatus {
+        case .granted: "已检测到受保护文件可访问"
+        case .denied: "建议开启完整磁盘访问权限"
+        case .unknown: "完整磁盘访问权限"
+        }
+    }
+
+    private var fullDiskAccessMessage: String {
+        switch fullDiskAccessStatus {
+        case .granted:
+            "已检测到受保护文件可访问。文件粘贴仍取决于原文件是否存在及目标应用是否支持。"
+        case .denied:
+            "为改善受保护目录中文件的复制与粘贴兼容性，可在系统设置中开启此权限，然后重新启动 ClipBar。"
+        case .unknown:
+            "无法确认当前授权状态。文件粘贴遇到权限问题时，可在系统设置中检查此权限。"
+        }
+    }
+
+    private func refreshFullDiskAccessStatus() {
+        // macOS 没有公开的完整磁盘访问状态 API；仅打开受保护文件，不读取内容。
+        let history = FileManager.default.homeDirectoryForCurrentUser
+            .appendingPathComponent("Library/Safari/History.db")
+        guard FileManager.default.fileExists(atPath: history.path) else {
+            fullDiskAccessStatus = .unknown
+            return
+        }
+        guard let handle = try? FileHandle(forReadingFrom: history) else {
+            fullDiskAccessStatus = .denied
+            return
+        }
+        try? handle.close()
+        fullDiskAccessStatus = .granted
     }
 
     /// 本机已安装、且尚未加入忽略名单的常见敏感应用。

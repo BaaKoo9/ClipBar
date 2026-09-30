@@ -102,7 +102,7 @@ tccutil reset ListenEvent com.huxiaolong.ClipBar
 | 面板内选择 | `←` `→` |
 | 粘贴选中项 | 回车 或 单击 |
 | 面板内入队 | `⌘`+点击 或 悬停 `⊕` |
-| 激活搜索 | 点击搜索框 或 `⌘F` |
+| 激活搜索 | 呼出面板后直接输入，或 `⌘F` |
 
 所有快捷键可在设置中自定义。
 
@@ -144,10 +144,13 @@ tccutil reset ListenEvent com.huxiaolong.ClipBar
 ## 测试
 
 ```bash
-swift run CoreTests
+CLIPBAR_SKIP_SYSTEM_TESTS=1 ./scripts/run-tests.sh  # 核心回归测试
+./scripts/run-tests.sh  # 完整测试，运行前先退出 ClipBar
 ```
 
-覆盖：插入/读取、去重、搜索、置顶保护、清空、文本/图片/文件/RTF 回填、热键注册、旧库迁移、面板焦点策略、1 万条性能（读取 &lt;10ms、搜索 &lt;5ms）。
+完整测试会暂时写入系统剪贴板并注册全局快捷键，结束时恢复测试前的剪贴板。运行前先退出 ClipBar，测试完成后再启动，避免测试样本进入正式历史。
+
+覆盖：插入/读取、去重、搜索、置顶保护、清空、文本/图片/文件/RTF 回填、热键注册、旧库迁移、面板焦点与关闭策略、1 万条性能。
 
 ## 技术栈
 

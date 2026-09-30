@@ -1,3 +1,4 @@
+import AppKit
 import SwiftUI
 
 /// ClipBar 品牌色，与 App 图标（mint / cyan / ink）对齐。
@@ -16,8 +17,15 @@ enum BrandTheme {
     static let accentSoft = mintSoft
 
     static let panelStroke = Color.white.opacity(0.22)
-    /// 卡片荧光标记：比品牌薄荷绿更深，用于选中描边、类型与置顶标识。
-    static let selectedStroke = Color(red: 0x20 / 255, green: 0xC7 / 255, blue: 0x68 / 255)
+    /// 选中描边按系统外观保留对比：浅色底用深绿，深色底用亮绿。
+    static let selectedStroke = Color(nsColor: NSColor(name: nil) { appearance in
+        if appearance.bestMatch(from: [.aqua, .darkAqua]) == .darkAqua {
+            return NSColor(srgbRed: 0x48 / 255, green: 0xD6 / 255, blue: 0x8A / 255, alpha: 1)
+        }
+        return NSColor(srgbRed: 0x0B / 255, green: 0x83 / 255, blue: 0x4B / 255, alpha: 1)
+    })
+    static let panelBackgroundLight = Color(red: 0xF3 / 255, green: 0xF6 / 255, blue: 0xF4 / 255)
+    static let panelBackgroundDark = Color(red: 0x38 / 255, green: 0x42 / 255, blue: 0x3F / 255)
 
     static let cardFill = Color.primary.opacity(0.08)
     static let cardFillHover = Color.primary.opacity(0.12)

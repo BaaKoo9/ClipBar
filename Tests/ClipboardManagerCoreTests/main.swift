@@ -953,13 +953,34 @@ private func testLabelsAssignAndFilter() throws {
 private func testPanelInteractionPolicy() {
     expectEqual(
         PanelInteractionPolicy.focusTarget(for: .panelOpened),
-        .panel,
-        "呼出面板时不应自动激活搜索框与输入法"
+        .searchField,
+        "呼出面板时应直接聚焦搜索框"
     )
     expectEqual(
         PanelInteractionPolicy.focusTarget(for: .searchRequested),
         .searchField,
         "明确请求搜索时应聚焦搜索框"
+    )
+    expect(
+        PanelInteractionPolicy.shouldCloseAfterActivationGrace(
+            isVisible: true, isKeyWindow: false,
+            expectsAppActivation: true, isAppActive: false
+        ),
+        "宽限期内失焦后仍应关闭面板"
+    )
+    expect(
+        !PanelInteractionPolicy.shouldCloseAfterActivationGrace(
+            isVisible: true, isKeyWindow: true,
+            expectsAppActivation: true, isAppActive: true
+        ),
+        "启动时短暂失活但焦点恢复后应保留面板"
+    )
+    expect(
+        !PanelInteractionPolicy.shouldCloseAfterActivationGrace(
+            isVisible: true, isKeyWindow: true,
+            expectsAppActivation: false, isAppActive: false
+        ),
+        "非激活式面板保持关键窗口时不应误关"
     )
     expectEqual(
         PanelInteractionPolicy.selectionIndex(currentIndex: nil, itemCount: 8, offset: 1),

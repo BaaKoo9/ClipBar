@@ -13,6 +13,8 @@ final class BottomPanelController: NSObject {
     private var lastShowTime: CFAbsoluteTime = 0
     /// 忽略 didResignActive 的宽限时长（右键菜单关闭后会更晚触发 resign）。
     private var resignGraceSeconds: CFAbsoluteTime = 0.35
+    private var expectsAppActivation = false
+    private var escapeMonitor: Any?
     /// 面板可见期间提升交互调度优先级，避免应用闲置后从 App Nap 恢复时连续掉帧。
     private var interactionActivity: NSObjectProtocol?
 
@@ -30,8 +32,22 @@ final class BottomPanelController: NSObject {
             Task { @MainActor in
                 guard let self else { return }
                 let grace = self.resignGraceSeconds
-                if CFAbsoluteTimeGetCurrent() - self.lastShowTime < grace {
-                    DebugLog.write("忽略 didResignActive：距 show 不足 \(Int(grace * 1000))ms")
+                let elapsed = CFAbsoluteTimeGetCurrent() - self.lastShowTime
+                if elapsed < grace {
+                    let token = self.visibilityToken
+                    DispatchQueue.main.asyncAfter(deadline: .now() + grace - elapsed) { [weak self] in
+                        guard let self, token == self.visibilityToken, let panel = self.panel else { return }
+                        let shouldClose = PanelInteractionPolicy.shouldCloseAfterActivationGrace(
+                            isVisible: panel.isVisible,
+                            isKeyWindow: panel.isKeyWindow,
+                            expectsAppActivation: self.expectsAppActivation,
+                            isAppActive: NSApp.isActive
+                        )
+                        DebugLog.write("宽限期失活复核 close=\(shouldClose) key=\(panel.isKeyWindow) active=\(NSApp.isActive)")
+                        if shouldClose {
+                            self.hide(animated: true, reason: "deferredResignActive")
+                        }
+                    }
                     return
                 }
                 self.hide(animated: true, reason: "didResignActive")
@@ -89,11 +105,14 @@ final class BottomPanelController: NSObject {
         let showStarted = lastShowTime
 
         panel.setFrame(finalRect, display: true)
+        panel.invalidateShadow()
         let frameFinished = CFAbsoluteTimeGetCurrent()
 
         // 直接上屏：淡入会与后台列表对齐叠成「一帧卡顿」体感
         let forceFront = secure || fromStatusMenu
+        expectsAppActivation = !forceFront
         panel.alphaValue = 1
+        installEscapeMonitor()
         if forceFront {
             panel.level = .statusBar
             panel.orderFrontRegardless()
@@ -147,6 +166,7 @@ final class BottomPanelController: NSObject {
             panel.level = .floating
             self.viewModel.panelDidClose()
             self.endInteractionActivity()
+            self.removeEscapeMonitor()
         }
         if animated {
             NSAnimationContext.runAnimationGroup({ context in
@@ -176,8 +196,29 @@ final class BottomPanelController: NSObject {
         self.interactionActivity = nil
     }
 
+    private func installEscapeMonitor() {
+        guard escapeMonitor == nil else { return }
+        escapeMonitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { [weak self] event in
+            guard event.keyCode == 53, let self, let panel = self.panel,
+                  event.window === panel, panel.isVisible, panel.isKeyWindow else { return event }
+            if (panel.firstResponder as? NSTextView)?.hasMarkedText() == true { return event }
+            self.hide(animated: true, reason: "escape")
+            return nil
+        }
+    }
+
+    private func removeEscapeMonitor() {
+        if let escapeMonitor { NSEvent.removeMonitor(escapeMonitor) }
+        escapeMonitor = nil
+    }
+
     private func buildPanel() {
         let hosting = NSHostingController(rootView: SnapshotBarView(viewModel: viewModel))
+        hosting.view.wantsLayer = true
+        hosting.view.layer?.backgroundColor = NSColor.clear.cgColor
+        hosting.view.layer?.cornerRadius = 20
+        hosting.view.layer?.cornerCurve = .continuous
+        hosting.view.layer?.masksToBounds = true
         let p = PanelWindow(
             contentRect: NSRect(x: 0, y: 0, width: 960, height: SnapshotBarView.panelHeight),
             styleMask: [.borderless, .nonactivatingPanel],
@@ -185,9 +226,11 @@ final class BottomPanelController: NSObject {
             defer: false
         )
         p.contentViewController = hosting
+        p.contentView?.wantsLayer = true
+        p.contentView?.layer?.backgroundColor = NSColor.clear.cgColor
         p.isOpaque = false
         p.backgroundColor = .clear
-        p.hasShadow = false
+        p.hasShadow = true
         p.level = .floating
         p.collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary, .stationary]
         p.isReleasedWhenClosed = false

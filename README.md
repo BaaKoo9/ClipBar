@@ -102,7 +102,7 @@ This does not delete clipboard history or settings. Do not remove `~/Library/App
 | Select in panel | `←` `→` |
 | Paste selection | `Enter` or click |
 | Enqueue from panel | `⌘`-click or hover `⊕` |
-| Activate search | Click the search field or `⌘F` |
+| Activate search | Type immediately after opening the panel, or press `⌘F` |
 
 All shortcuts are customizable in Settings.
 
@@ -148,10 +148,13 @@ steps above once; later upgrades made with that same identity keep the permissio
 ## Tests
 
 ```bash
-swift run CoreTests
+CLIPBAR_SKIP_SYSTEM_TESTS=1 ./scripts/run-tests.sh  # core regression tests
+./scripts/run-tests.sh  # full tests; quit ClipBar first
 ```
 
-Covers insert/fetch, dedup, search, pin protection, clear, paste-back for text/image/file/RTF, hotkey registration, legacy DB migration, panel focus policy, and a 10k-item perf check (fetch &lt;10ms, search &lt;5ms).
+Full tests temporarily write to the system clipboard and register a global shortcut, then restore the previous clipboard contents. Quit ClipBar before running them and reopen it afterward to keep test samples out of your history.
+
+Covers insert/fetch, dedup, search, pin protection, clear, paste-back for text/image/file/RTF, hotkey registration, legacy DB migration, panel focus and dismissal policies, and a 10k-item performance check.
 
 ## Stack
 

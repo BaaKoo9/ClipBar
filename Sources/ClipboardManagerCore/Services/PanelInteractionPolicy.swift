@@ -29,12 +29,19 @@ public enum PanelInteractionPolicy {
         case searchField
     }
 
-    /// 呼出时先保证选择/悬停流畅；只有用户明确搜索时才激活输入法。
+    /// 呼出后即可输入搜索词；方向键和回车仍由搜索框的键盘处理负责。
     public static func focusTarget(for intent: FocusIntent) -> FocusTarget {
         switch intent {
-        case .panelOpened: .panel
+        case .panelOpened: .searchField
         case .searchRequested: .searchField
         }
+    }
+
+    public static func shouldCloseAfterActivationGrace(
+        isVisible: Bool, isKeyWindow: Bool,
+        expectsAppActivation: Bool, isAppActive: Bool
+    ) -> Bool {
+        isVisible && (!isKeyWindow || (expectsAppActivation && !isAppActive))
     }
 
     public static func selectionIndex(
